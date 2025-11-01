@@ -24,6 +24,12 @@ const MOBILE_SPEED_FACTOR = 0.7475; // +15% к предыдущему (≈75% б
 const AIR_CONTROL_FACTOR   = 0.5;    // ослабление управления в воздухе
 const ACCEL_GROUND_PER_S   = 8.0;    // сек^-1, плавный разгон на земле
 const ACCEL_AIR_PER_S      = 4.0;    // сек^-1, мягче в воздухе
+// Tap vs Hold
+const HOLD_DELAY_MS = 130;        // после ~0.13с удержания включаем постоянное движение
+const TAP_MAX_MS    = 140;        // короче — считаем быстрым тапом
+const NUDGE_DURATION = 0.16;      // секунды «подталкивания» при коротком тапе
+const NUDGE_SPEED_SCALE = 0.6;    // ~60% от базовой скорости
+let overrideMove = {active:false, side:0, until:0};
 
 
 // Predeclare frequently used state so early event handlers see them
@@ -41,12 +47,14 @@ let cameraY = 0, cameraMaxY = 0;
 // ----- Mobile touch controls (zones + vertical swipe) -----
 (function(){
   const DEADZONE = 18;           // px: дрожание пальца игнорируем
-  const SWIPE_MIN = 28;          // px: минимальная длина свайпа (было 36)
-  const SWIPE_VERT_RATIO = 0.95; // вертикаль допускает чуть больше косины (было 1.2)
-  const SWIPE_MIN_RELAX = 22;    // ещё мягче — только если движение не активно
-  const SWIPE_VERT_RATIO_RELAX = 0.80; // мягкий режим: достаточно, чтобы вертикаль преобладала
-  const DIAG_X_MIN = 18;         // минимальная горизонтальная составляющая для диагонального прыжка
-  const DIAG_RATIO_MIN = 0.45;   // absX должен быть хотя бы 45% от absY для диагонали
+  const SWIPE_MIN = 28;          // px: минимальная длина свайпа вверх
+  const SWIPE_VERT_RATIO = 0.95; // вертикаль допускает чуть больше косины
+  const SWIPE_MIN_RELAX = 22;    // мягче, только если движение не активно
+  const SWIPE_VERT_RATIO_RELAX = 0.80; // мягкий порог вертикальности
+  // Диагональный прыжок — делаем осознанным, не случайным:
+  const DIAG_X_MIN = 28;         // нужна заметная горизонталь
+  const DIAG_RATIO_MIN_STRICT = 0.70; // absX >= 70% от absY
+
 
   let activeId = null;
   let startX = 0, startY = 0, startTS = 0;
@@ -101,9 +109,11 @@ let cameraY = 0, cameraMaxY = 0;
       const isUpSwipe = (-dy > SWIPE_MIN) && (absY > absX * SWIPE_VERT_RATIO);
       // Доп. мягкий путь: если движение ещё не активно, допускаем более короткий и косой свайп вверх
       const isUpSwipeRelax = (!moveActive) && (-dy > SWIPE_MIN_RELAX) && (absY > absX * SWIPE_VERT_RATIO_RELAX);
-      // Диагональный свайп вверх: достаточно заметная горизонталь и явное движение вверх
-      const isDiagUp = (-dy > SWIPE_MIN_RELAX) && (Math.abs(dx) >= DIAG_X_MIN) && ((Math.abs(dx)/Math.max(1,absY)) >= DIAG_RATIO_MIN);
+      // Диагональный свайп вверх: требуем явной горизонтали и осознанного угла
+      const isDiagUp = (-dy > SWIPE_MIN) && (Math.abs(dx) >= DIAG_X_MIN) && ((Math.abs(dx)/Math.max(1,absY)) >= DIAG_RATIO_MIN_STRICT);
+      // Приоритет: чистый вверх > мягкий вверх > диагональ (чтобы случайные жесты не уводили вбок)
       if(!didJump && (isUpSwipe || isUpSwipeRelax || isDiagUp)){
+      
         // Прыжок: если движение уже активно — это прыжок в сторону; иначе — строго вверх
         if(!keys.up){
           lastJumpPress = timeSec;
@@ -161,10 +171,24 @@ let cameraY = 0, cameraMaxY = 0;
   }
 
   c.addEventListener('touchend', (e)=>{
-    let has = false;
-    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
+    let has = false, tMatch=null;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; tMatch=tt; break; } }
     if(!has) return;
-    if(gameState === 'play'){ e.preventDefault(); }
+    if(gameState === 'play'){
+      const now = performance.now();
+      const dur = now - startTS;
+      const p = canvasPos(tMatch);
+      const dx = p.x - startX;
+      const dy = p.y - startY;
+      const absX = Math.abs(dx), absY = Math.abs(dy);
+      // Быстрый лёгкий тап без прыжка — короткий «тычок» в сторону
+      if(!didJump && !moveActive && dur <= TAP_MAX_MS && absX < SWIPE_MIN_RELAX && absY < SWIPE_MIN_RELAX){
+        overrideMove.active = true;
+        overrideMove.side = sideHeld || (p.x < p.w*0.5 ? -1 : +1);
+        overrideMove.until = (timeSec + NUDGE_DURATION);
+      }
+      e.preventDefault();
+    }
     endTouch();
   }, { passive: false });
 
@@ -912,6 +936,15 @@ function step(nowTS){
   if(gameState==='play'){
     let targetVx=0;
     const baseSpeed = SPEED_X * (IS_TOUCH ? MOBILE_SPEED_FACTOR : 1.0);
+    // Принудительный короткий «тычок» после быстрого тапа
+    if(IS_TOUCH && overrideMove.active){
+      if(timeSec <= overrideMove.until){
+        if(overrideMove.side < 0){ targetVx -= baseSpeed * NUDGE_SPEED_SCALE; keys.left = true; keys.right = false; player.dir = -1; }
+        else { targetVx += baseSpeed * NUDGE_SPEED_SCALE; keys.right = true; keys.left = false; player.dir = +1; }
+      } else {
+        overrideMove.active = false;
+      }
+    }
     if(keys.right)targetVx+=baseSpeed; if(keys.left)targetVx-=baseSpeed;
     // Плавный разгон/замедление вместо мгновенных скачков
     const accelPerS = player.on ? ACCEL_GROUND_PER_S : (ACCEL_AIR_PER_S * AIR_CONTROL_FACTOR);
