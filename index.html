@@ -936,13 +936,15 @@ function step(nowTS){
   if(gameState==='play'){
     let targetVx=0;
     const baseSpeed = SPEED_X * (IS_TOUCH ? MOBILE_SPEED_FACTOR : 1.0);
-    // Принудительный короткий «тычок» после быстрого тапа
+    // Принудительный короткий «тычок» после быстрого тапа (без фиксации клавиш)
     if(IS_TOUCH && overrideMove.active){
       if(timeSec <= overrideMove.until){
-        if(overrideMove.side < 0){ targetVx -= baseSpeed * NUDGE_SPEED_SCALE; keys.left = true; keys.right = false; player.dir = -1; }
-        else { targetVx += baseSpeed * NUDGE_SPEED_SCALE; keys.right = true; keys.left = false; player.dir = +1; }
+        if(overrideMove.side < 0){ targetVx -= baseSpeed * NUDGE_SPEED_SCALE; player.dir = -1; }
+        else { targetVx += baseSpeed * NUDGE_SPEED_SCALE; player.dir = +1; }
       } else {
         overrideMove.active = false;
+        // Убедимся, что после «тычка» не осталось зажатых направлений
+        keys.left = false; keys.right = false;
       }
     }
     if(keys.right)targetVx+=baseSpeed; if(keys.left)targetVx-=baseSpeed;
