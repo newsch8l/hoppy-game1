@@ -17,6 +17,92 @@ const VISUAL_SCALE = 0.75;
 let DPR = Math.max(1, Math.round(window.devicePixelRatio || 1));
 
 const c = document.getElementById('cv');
+// ----- Mobile touch controls (left/right halves + swipe up to jump) -----
+(function(){
+  const DEADZONE = 22; // px
+  let activeId = null;
+  let startX = 0, startY = 0;
+  let didJump = false;
+
+  function canvasPos(t){
+    const r = c.getBoundingClientRect();
+    return { x: (t.clientX - r.left), y: (t.clientY - r.top), w: r.width, h: r.height };
+  }
+
+  function setDirByX(px, w){
+    const center = w * 0.5;
+    if(px < center){
+      keys.left = true; keys.right = false; player.dir = -1;
+    }else{
+      keys.right = true; keys.left = false; player.dir = 1;
+    }
+  }
+
+  c.addEventListener('touchstart', (e)=>{
+    if(activeId !== null) return;
+    const t = e.changedTouches[0];
+    activeId = t.identifier;
+    const p = canvasPos(t);
+    startX = p.x; startY = p.y; didJump = false;
+
+    if(gameState === 'play'){
+      setDirByX(p.x, p.w);
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  c.addEventListener('touchmove', (e)=>{
+    if(activeId === null) return;
+    let t = null;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ t = tt; break; } }
+    if(!t) return;
+    const p = canvasPos(t);
+    const dx = p.x - startX;
+    const dy = p.y - startY;
+
+    if(gameState === 'play'){
+      if(!didJump && (-dy > DEADZONE) && (Math.abs(dy) > Math.abs(dx))){
+        if(!keys.up){
+          lastJumpPress = timeSec;
+          player.jumpHeld = true;
+        }
+        keys.up = true;
+        didJump = true;
+      } else {
+        setDirByX(p.x, p.w);
+      }
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  function endTouch(){
+    keys.left = false; keys.right = false;
+    if(keys.up){
+      keys.up = false;
+      player.jumpHeld = false;
+      if(player.vy < 0) player.vy *= 0.55;
+    }
+    activeId = null;
+  }
+
+  c.addEventListener('touchend', (e)=>{
+    let has = false;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
+    if(!has) return;
+    if(gameState === 'play'){ e.preventDefault(); }
+    endTouch();
+  }, { passive: false });
+
+  c.addEventListener('touchcancel', (e)=>{
+    let has = false;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
+    if(!has) return;
+    if(gameState === 'play'){ e.preventDefault(); }
+    endTouch();
+  }, { passive: false });
+})();
+// ----- end touch controls -----
+
 let ctx = c.getContext('2d', { alpha: true });
 ctx.imageSmoothingEnabled = true;
 ctx.imageSmoothingQuality = 'high';
