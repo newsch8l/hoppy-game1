@@ -45,6 +45,8 @@ let cameraY = 0, cameraMaxY = 0;
   const SWIPE_VERT_RATIO = 0.95; // вертикаль допускает чуть больше косины (было 1.2)
   const SWIPE_MIN_RELAX = 22;    // ещё мягче — только если движение не активно
   const SWIPE_VERT_RATIO_RELAX = 0.80; // мягкий режим: достаточно, чтобы вертикаль преобладала
+  const DIAG_X_MIN = 18;         // минимальная горизонтальная составляющая для диагонального прыжка
+  const DIAG_RATIO_MIN = 0.45;   // absX должен быть хотя бы 45% от absY для диагонали
 
   let activeId = null;
   let startX = 0, startY = 0, startTS = 0;
@@ -99,7 +101,9 @@ let cameraY = 0, cameraMaxY = 0;
       const isUpSwipe = (-dy > SWIPE_MIN) && (absY > absX * SWIPE_VERT_RATIO);
       // Доп. мягкий путь: если движение ещё не активно, допускаем более короткий и косой свайп вверх
       const isUpSwipeRelax = (!moveActive) && (-dy > SWIPE_MIN_RELAX) && (absY > absX * SWIPE_VERT_RATIO_RELAX);
-      if(!didJump && (isUpSwipe || isUpSwipeRelax)){
+      // Диагональный свайп вверх: достаточно заметная горизонталь и явное движение вверх
+      const isDiagUp = (-dy > SWIPE_MIN_RELAX) && (Math.abs(dx) >= DIAG_X_MIN) && ((Math.abs(dx)/Math.max(1,absY)) >= DIAG_RATIO_MIN);
+      if(!didJump && (isUpSwipe || isUpSwipeRelax || isDiagUp)){
         // Прыжок: если движение уже активно — это прыжок в сторону; иначе — строго вверх
         if(!keys.up){
           lastJumpPress = timeSec;
@@ -108,7 +112,12 @@ let cameraY = 0, cameraMaxY = 0;
         keys.up = true;
         didJump = true;
 
-        if(!moveActive){
+        if(isDiagUp){
+          // Диагональный свайп: задаём сторону по направлению жеста
+          sideHeld = (dx < 0) ? -1 : +1;
+          keys.left = sideHeld < 0; keys.right = sideHeld > 0; player.dir = sideHeld;
+          moveActive = true;
+        } else if(!moveActive){
           // Чистый вертикальный прыжок: не включаем движение
           stopMove();
         } else {
