@@ -44,27 +44,33 @@ const keys={left:false,right:false,up:false};
 // --- Camera (используется только на уровне 3) ---
 let cameraY = 0, cameraMaxY = 0;
 
-// ----- Mobile touch controls (zones + vertical swipe) -----
+// ----- Mobile touch controls (Invisible Mini-Stick) -----
 (function(){
-  const DEADZONE = 18;           // px: дрожание пальца игнорируем
-  const SWIPE_MIN = 34;          // px: базовый порог для свайпа вверх (было 28)
-  const SWIPE_VERT_RATIO = 1.05; // вертикаль явнее, чем горизонталь (было 0.95)
-  const SWIPE_MIN_RELAX = 28;    // мягкий порог (было 22)
-  const SWIPE_VERT_RATIO_RELAX = 0.90; // мягкий угол для чистого вверх
-  const PATH_MIN = 40;           // минимальная длина пути для распознавания прыжка
-  const JUMP_VERTICAL_MARGIN = 12; // вертикаль должна опережать горизонталь минимум на 12px
-  // Диагональный прыжок — делаем осознанным, не случайным:
-  const DIAG_X_MIN = 28;         // нужна заметная горизонталь
-  const DIAG_RATIO_MIN_STRICT = 0.70; // absX >= 70% от absY
+  // Geometry & thresholds
+  const DEADZONE = 16;            // px: вокруг origin движения нет
+  const PATH_MIN = 40;            // px: общий минимум пути для прыжка
+  const UP_MIN = 32;              // px: минимальная вертикаль для прыжка
+  const VERT_DOM_RATIO = 1.05;    // вертикаль должна быть сильнее горизонтали
+  const DIAG_X_MIN = 28;          // минимальная горизонталь для диагонального прыжка
+  const DIAG_RATIO = 0.65;        // absX >= 65% от absY -> диагональ осознанная
 
+  // Jump strength (analog only for vertical)
+  const JUMP_SWipe_MIN = 40;      // px: начало усиления
+  const JUMP_SWipe_MAX = 160;     // px: предел для усиления
+  const JUMP_SCALE_MIN = 0.98;    // 98% от базового (слабый свайп)
+  const JUMP_SCALE_MAX = 1.18;    // 118% от базового (сильный свайп)
+
+  // Hold movement (binary speed)
+  const HOLD_DELAY_MS = 110;      // после ~0.11s удержания без явного свайпа включаем бег
+  const RECENTER_DIST = 120;      // px: если палец ушёл далеко от origin — «перевешиваем» центр
 
   let activeId = null;
-  let startX = 0, startY = 0, startTS = 0;
+  let originX = 0, originY = 0;
+  let lastX = 0, lastY = 0;
+  let startTS = 0;
   let didJump = false;
-  let sideHeld = 0;      // -1 = левая половина, +1 = правая, 0 = нет
-  let moveActive = false; // когда реально включили движение
-  let movedOnce = false;  // использовано для активации движения по задержке
-  let holdTimer = null;   // таймер для активации движения при удержании без движения
+  let moveActive = false;
+  let holdTimer = null;
 
   function canvasPos(t){
     const r = c.getBoundingClientRect();
@@ -73,35 +79,64 @@ let cameraY = 0, cameraMaxY = 0;
 
   function sideOf(px, w){ return (px < w*0.5) ? -1 : +1; }
 
-  function engageMove(){
-    if(sideHeld<0){ keys.left = true; keys.right = false; player.dir = -1; moveActive = true; }
-    else if(sideHeld>0){ keys.right = true; keys.left = false; player.dir = +1; moveActive = true; }
+  function engageMoveBy(dx, w){
+    const side = (dx < 0) ? -1 : +1;
+    if(side < 0){ keys.left = true; keys.right = false; player.dir = -1; }
+    else { keys.right = true; keys.left = false; player.dir = +1; }
+    moveActive = true;
   }
   function stopMove(){
     keys.left = false; keys.right = false; moveActive = false;
   }
 
+  function jumpWithStrength(absSwipeY, dx, w){
+    // Compute scale from vertical swipe length
+    let t = (absSwipeY - JUMP_SWipe_MIN) / Math.max(1, (JUMP_SWipe_MAX - JUMP_SWipe_MIN));
+    t = Math.max(0, Math.min(1, t));
+    const scale = JUMP_SCALE_MIN + (JUMP_SCALE_MAX - JUMP_SCALE_MIN) * t;
+    // Apply jump
+    lastJumpPress = timeSec; player.jumpHeld = true; keys.up = true;
+    // Set vy directly with scaling at next physics step (buffer uses lastJumpPress)
+    // Horizontal: if diagonal intent, engage move
+    const absX = Math.abs(dx);
+    if(absX >= DIAG_X_MIN && (absX / Math.max(1, absSwipeY)) >= DIAG_RATIO){
+      engageMoveBy(dx, w);
+    }
+    didJump = true;
+    // Store temporary jump scale
+    player._pendingJumpScale = scale;
+  }
+
+  // We hook into physics to apply pending jump scale
+  const _origStepHook = (window._applyPendingJumpScale = window._applyPendingJumpScale || function(){
+    if(typeof player._pendingJumpScale === 'number' && player.vy < 0){
+      player.vy *= player._pendingJumpScale;
+      delete player._pendingJumpScale;
+    }
+  });
+
   c.addEventListener('touchstart', (e)=>{
     if(activeId !== null) return;
     const t = e.changedTouches[0];
-    activeId = t.identifier;
     const p = canvasPos(t);
-    startX = p.x; startY = p.y; startTS = performance.now();
-    didJump = false; moveActive = false; movedOnce = false;
-    sideHeld = sideOf(p.x, p.w);
-
+    activeId = t.identifier;
+    originX = lastX = p.x;
+    originY = lastY = p.y;
+    startTS = performance.now();
+    didJump = false; moveActive = false;
+    if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
     if(gameState === 'play'){
-      // Стартуем таймер удержания: если палец просто держится, включим движение через HOLD_DELAY_MS
-      if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
       holdTimer = setTimeout(()=>{
-        if(gameState==='play' && activeId!==null && !moveActive && !didJump){
-          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
-          engageMove();
+        if(activeId !== null && !didJump && !moveActive){
+          const dx = lastX - originX;
+          if(Math.hypot(dx, 0) > DEADZONE){
+            engageMoveBy(dx, p.w);
+          }
         }
       }, HOLD_DELAY_MS);
       e.preventDefault();
     }
-  }, { passive: false });
+  }, { passive:false });
 
   c.addEventListener('touchmove', (e)=>{
     if(activeId === null) return;
@@ -109,107 +144,70 @@ let cameraY = 0, cameraMaxY = 0;
     for(const tt of e.changedTouches){ if(tt.identifier === activeId){ t = tt; break; } }
     if(!t) return;
     const p = canvasPos(t);
-    const dx = p.x - startX;
-    const dy = p.y - startY;
+    const dx = p.x - originX;
+    const dy = p.y - originY;
+    lastX = p.x; lastY = p.y;
 
     if(gameState === 'play'){
       const absX = Math.abs(dx), absY = Math.abs(dy);
       const pathLen = Math.hypot(dx, dy);
-      const verticalBeatsHorizontal = (absY - absX) >= JUMP_VERTICAL_MARGIN;
 
-      // Проверяем вертикальный свайп 'вверх'
-      const isUpSwipe = (pathLen > PATH_MIN) && (-dy > SWIPE_MIN) && (absY > absX * SWIPE_VERT_RATIO) && verticalBeatsHorizontal;
-      // Доп. мягкий путь: если движение ещё не активно, допускаем более короткий и косой свайп вверх
-      const isUpSwipeRelax = (!moveActive) && (pathLen > PATH_MIN*0.8) && (-dy > SWIPE_MIN_RELAX) && (absY > absX * SWIPE_VERT_RATIO_RELAX);
-      // Диагональный свайп вверх: требуем явной горизонтали и осознанного угла
-      const isDiagUp = (-dy > SWIPE_MIN) && (Math.abs(dx) >= DIAG_X_MIN) && ((Math.abs(dx)/Math.max(1,absY)) >= DIAG_RATIO_MIN_STRICT);
-      // Приоритет: чистый вверх > мягкий вверх > диагональ (чтобы случайные жесты не уводили вбок)
-      if(!didJump && (isUpSwipe || isUpSwipeRelax || isDiagUp)){
-      
-        // Прыжок: если движение уже активно — это прыжок в сторону; иначе — строго вверх
-        if(!keys.up){
-          lastJumpPress = timeSec;
-          player.jumpHeld = true;
-        }
-        keys.up = true;
-        didJump = true;
+      // Recenter origin if finger drifted far
+      if(pathLen > RECENTER_DIST){
+        originX = p.x; originY = p.y;
+      }
 
-        if(isDiagUp){
-          // Диагональный свайп: задаём сторону по направлению жеста
-          sideHeld = (dx < 0) ? -1 : +1;
-          keys.left = sideHeld < 0; keys.right = sideHeld > 0; player.dir = sideHeld;
-          moveActive = true;
-        } else if(!moveActive){
-          // Чистый вертикальный прыжок: не включаем движение
-          stopMove();
-        } else {
-          // Движение сохраняем как есть
+      // If we already jumped: allow in-air steering on lateral deflection
+      if(didJump){
+        if(absX > DEADZONE * 1.1){
+          engageMoveBy(dx, p.w);
         }
         e.preventDefault();
         return;
       }
 
-      // Если это не свайп вверх — можно включить движение по стороне
-      // Активируем движение при лёгком смещении или короткой задержке
-      const elapsed = performance.now() - startTS;
-      if(!moveActive){
-        if(absX > DEADZONE && absX >= absY){
-          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
-          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
-          engageMove(); movedOnce = true;
-        } else if(elapsed > 90 && absY <= SWIPE_MIN){ // небольшая задержка ~0.09с
-          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
-          engageMove();
-        }
-      } else {
-        // Уже двигаемся — обновляем сторону, если палец переехал в другую половину
-        const newSide = sideOf(p.x, p.w);
-        if(newSide !== sideHeld){
-          sideHeld = newSide;
-          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
-          engageMove();
-        }
+      // Not jumped yet
+      // 1) Check strong upward intent (pure up)
+      const pureUp = (pathLen > PATH_MIN) && (-dy > UP_MIN) && (absY > absX * VERT_DOM_RATIO);
+      // 2) Check diagonal upward intent
+      const diagUp = (-dy > UP_MIN) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
+
+      if(pureUp || diagUp){
+        if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
+        jumpWithStrength(absY, dx, p.w);
+        e.preventDefault();
+        return;
+      }
+
+      // Else: horizontal move when leaving deadzone
+      if(absX > DEADZONE && absX >= absY * 0.8){
+        if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
+        engageMoveBy(dx, p.w);
+      } else if(absX <= DEADZONE && !didJump && moveActive){
+        // If came back near origin, stop to avoid micro-oscillation
+        stopMove();
       }
 
       e.preventDefault();
     }
-  }, { passive: false });
+  }, { passive:false });
 
   function endTouch(){
     if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
     stopMove();
     if(keys.up){
-      keys.up = false;
-      player.jumpHeld = false;
-      if(player.vy < 0) player.vy *= 0.55;
+      keys.up = false; player.jumpHeld = false; if(player.vy < 0) player.vy *= 0.55;
     }
     activeId = null;
-    sideHeld = 0;
   }
 
   c.addEventListener('touchend', (e)=>{
-    let has = false, tMatch=null;
-    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; tMatch=tt; break; } }
+    let has = false;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
     if(!has) return;
-    if(gameState === 'play'){
-      const now = performance.now();
-      const dur = now - startTS;
-      const p = canvasPos(tMatch);
-      const dx = p.x - startX;
-      const dy = p.y - startY;
-      const absX = Math.abs(dx), absY = Math.abs(dy);
-      const pathLen = Math.hypot(dx, dy);
-      const verticalBeatsHorizontal = (absY - absX) >= JUMP_VERTICAL_MARGIN;
-      // Быстрый лёгкий тап без прыжка — короткий «тычок» в сторону
-      if(!didJump && !moveActive && dur <= TAP_MAX_MS && absX < SWIPE_MIN_RELAX && absY < SWIPE_MIN_RELAX){
-        overrideMove.active = true;
-        overrideMove.side = sideHeld || (p.x < p.w*0.5 ? -1 : +1);
-        overrideMove.until = (timeSec + NUDGE_DURATION);
-      }
-      e.preventDefault();
-    }
+    if(gameState === 'play'){ e.preventDefault(); }
     endTouch();
-  }, { passive: false });
+  }, { passive:false });
 
   c.addEventListener('touchcancel', (e)=>{
     let has = false;
@@ -217,7 +215,7 @@ let cameraY = 0, cameraMaxY = 0;
     if(!has) return;
     if(gameState === 'play'){ e.preventDefault(); }
     endTouch();
-  }, { passive: false });
+  }, { passive:false });
 })();
 // ----- end touch controls -----
 
@@ -978,7 +976,7 @@ function step(nowTS){
     const buffered=(timeSec-lastJumpPress)<=BUFFER;
     if(buffered&&(player.on||canCoyote)){ player.vy=JUMP_VY; player.on=false; lastJumpPress=-1; }
     const prevHB=getHitbox(); const prevBottom=prevHB.y+prevHB.h;
-    player.vy+=G*dt; if(player.vy>MAX_FALL)player.vy=MAX_FALL; if(player.vy<-MAX_RISE)player.vy=-MAX_RISE;
+    player.vy+=G*dt; if(player.vy>MAX_FALL)player.vy=MAX_FALL; if(player.vy<-MAX_RISE)player.vy=-MAX_RISE; _applyPendingJumpScale();
     player.x+=player.vx*dt; player.y+=player.vy*dt; player.on=false;
 
     // камера только на уровне 3
