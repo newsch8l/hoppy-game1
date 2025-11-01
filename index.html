@@ -10,7 +10,7 @@
 </style>
 <div class="wrap"><canvas id="cv"></canvas></div>
 <script>
-// ------- Core constants (shared) -------
+
 const BASE_W = 400, BASE_H = 700;
 const BASE_PLAYER_W = 200, BASE_PLAYER_H = 243;
 const VISUAL_SCALE = 0.75;
@@ -18,21 +18,18 @@ let DPR = Math.max(1, Math.round(window.devicePixelRatio || 1));
 
 const c = document.getElementById('cv');
 
-// --- Mobile detection & tuning ---
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-const MOBILE_SPEED_FACTOR = 0.7475; // +15% к предыдущему (≈75% базовой скорости)
-const AIR_CONTROL_FACTOR   = 0.5;    // ослабление управления в воздухе
-const ACCEL_GROUND_PER_S   = 8.0;    // сек^-1, плавный разгон на земле
-const ACCEL_AIR_PER_S      = 4.0;    // сек^-1, мягче в воздухе
-// Tap vs Hold
-const HOLD_DELAY_MS = 130;        // после ~0.13с удержания включаем постоянное движение
-const TAP_MAX_MS    = 140;        // короче — считаем быстрым тапом
-const NUDGE_DURATION = 0.16;      // секунды «подталкивания» при коротком тапе
-const NUDGE_SPEED_SCALE = 0.6;    // ~60% от базовой скорости
+const MOBILE_SPEED_FACTOR = 0.7475;
+const AIR_CONTROL_FACTOR   = 0.5;
+const ACCEL_GROUND_PER_S   = 8.0;
+const ACCEL_AIR_PER_S      = 4.0;
+
+const HOLD_DELAY_MS = 130;
+const TAP_MAX_MS    = 140;
+const NUDGE_DURATION = 0.16;
+const NUDGE_SPEED_SCALE = 0.6;
 let overrideMove = {active:false, side:0, until:0};
 
-
-// Predeclare frequently used state so early event handlers see them
 let ctx;
 let W = BASE_W, H = BASE_H;
 let gameState = 'play';
@@ -41,27 +38,25 @@ const player = { x: 0, y: 20, w: BASE_PLAYER_W, h: BASE_PLAYER_H, vx:0, vy: 20, 
 let timeSec=0,lastGroundTime=-1,lastJumpPress=-1;
 const keys={left:false,right:false,up:false};
 
-// --- Camera (используется только на уровне 3) ---
 let cameraY = 0, cameraMaxY = 0;
 
-// ----- Mobile touch controls (zones + vertical swipe) -----
 (function(){
-  const DEADZONE = 18;           // px: дрожание пальца игнорируем
-  const SWIPE_MIN = 28;          // px: минимальная длина свайпа вверх
-  const SWIPE_VERT_RATIO = 0.95; // вертикаль допускает чуть больше косины
-  const SWIPE_MIN_RELAX = 22;    // мягче, только если движение не активно
-  const SWIPE_VERT_RATIO_RELAX = 0.80; // мягкий порог вертикальности
-  // Диагональный прыжок — делаем осознанным, не случайным:
-  const DIAG_X_MIN = 28;         // нужна заметная горизонталь
-  const DIAG_RATIO_MIN_STRICT = 0.70; // absX >= 70% от absY
+  const DEADZONE = 18;
+  const SWIPE_MIN = 28;
+  const SWIPE_VERT_RATIO = 0.95;
+  const SWIPE_MIN_RELAX = 22;
+  const SWIPE_VERT_RATIO_RELAX = 0.80;
 
+  const DIAG_X_MIN = 28;
+  const DIAG_RATIO_MIN_STRICT = 0.70;
 
   let activeId = null;
   let startX = 0, startY = 0, startTS = 0;
   let didJump = false;
-  let sideHeld = 0;      // -1 = левая половина, +1 = правая, 0 = нет
-  let moveActive = false; // когда реально включили движение
-  let movedOnce = false;  // использовано для активации движения по задержке
+  let sideHeld = 0;
+  let moveActive = false;
+  let movedOnce = false;
+  let holdTimer = null;
 
   function canvasPos(t){
     const r = c.getBoundingClientRect();
@@ -88,7 +83,14 @@ let cameraY = 0, cameraMaxY = 0;
     sideHeld = sideOf(p.x, p.w);
 
     if(gameState === 'play'){
-      // На старте НЕ включаем движение. Ждём либо вертикальный свайп, либо активацию движения.
+
+      if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
+      holdTimer = setTimeout(()=>{
+        if(gameState==='play' && activeId!==null && !moveActive && !didJump){
+          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
+          engageMove();
+        }
+      }, HOLD_DELAY_MS);
       e.preventDefault();
     }
   }, { passive: false });
@@ -105,16 +107,15 @@ let cameraY = 0, cameraMaxY = 0;
     if(gameState === 'play'){
       const absX = Math.abs(dx), absY = Math.abs(dy);
 
-      // Проверяем вертикальный свайп 'вверх'
       const isUpSwipe = (-dy > SWIPE_MIN) && (absY > absX * SWIPE_VERT_RATIO);
-      // Доп. мягкий путь: если движение ещё не активно, допускаем более короткий и косой свайп вверх
+
       const isUpSwipeRelax = (!moveActive) && (-dy > SWIPE_MIN_RELAX) && (absY > absX * SWIPE_VERT_RATIO_RELAX);
-      // Диагональный свайп вверх: требуем явной горизонтали и осознанного угла
+
       const isDiagUp = (-dy > SWIPE_MIN) && (Math.abs(dx) >= DIAG_X_MIN) && ((Math.abs(dx)/Math.max(1,absY)) >= DIAG_RATIO_MIN_STRICT);
-      // Приоритет: чистый вверх > мягкий вверх > диагональ (чтобы случайные жесты не уводили вбок)
+
       if(!didJump && (isUpSwipe || isUpSwipeRelax || isDiagUp)){
-      
-        // Прыжок: если движение уже активно — это прыжок в сторону; иначе — строго вверх
+
+
         if(!keys.up){
           lastJumpPress = timeSec;
           player.jumpHeld = true;
@@ -123,34 +124,36 @@ let cameraY = 0, cameraMaxY = 0;
         didJump = true;
 
         if(isDiagUp){
-          // Диагональный свайп: задаём сторону по направлению жеста
+
           sideHeld = (dx < 0) ? -1 : +1;
           keys.left = sideHeld < 0; keys.right = sideHeld > 0; player.dir = sideHeld;
           moveActive = true;
         } else if(!moveActive){
-          // Чистый вертикальный прыжок: не включаем движение
+
           stopMove();
         } else {
-          // Движение сохраняем как есть
+
         }
         e.preventDefault();
         return;
       }
 
-      // Если это не свайп вверх — можно включить движение по стороне
-      // Активируем движение при лёгком смещении или короткой задержке
       const elapsed = performance.now() - startTS;
       if(!moveActive){
         if(absX > DEADZONE && absX >= absY){
+          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
+          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
           engageMove(); movedOnce = true;
-        } else if(elapsed > 90 && absY <= SWIPE_MIN){ // небольшая задержка ~0.09с
+        } else if(elapsed > 90 && absY <= SWIPE_MIN){
+          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
           engageMove();
         }
       } else {
-        // Уже двигаемся — обновляем сторону, если палец переехал в другую половину
+
         const newSide = sideOf(p.x, p.w);
         if(newSide !== sideHeld){
           sideHeld = newSide;
+          if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
           engageMove();
         }
       }
@@ -160,6 +163,7 @@ let cameraY = 0, cameraMaxY = 0;
   }, { passive: false });
 
   function endTouch(){
+    if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
     stopMove();
     if(keys.up){
       keys.up = false;
@@ -181,7 +185,7 @@ let cameraY = 0, cameraMaxY = 0;
       const dx = p.x - startX;
       const dy = p.y - startY;
       const absX = Math.abs(dx), absY = Math.abs(dy);
-      // Быстрый лёгкий тап без прыжка — короткий «тычок» в сторону
+
       if(!didJump && !moveActive && dur <= TAP_MAX_MS && absX < SWIPE_MIN_RELAX && absY < SWIPE_MIN_RELAX){
         overrideMove.active = true;
         overrideMove.side = sideHeld || (p.x < p.w*0.5 ? -1 : +1);
@@ -200,7 +204,6 @@ let cameraY = 0, cameraMaxY = 0;
     endTouch();
   }, { passive: false });
 })();
-// ----- end touch controls -----
 
 ctx = c.getContext('2d', { alpha: true });
 ctx.imageSmoothingEnabled = true;
@@ -223,15 +226,13 @@ function resizeCanvas(){
 }
 addEventListener('resize', resizeCanvas, { passive:true });
 
-// ------- Physics & player -------
 const G=2200, JUMP_VY=-770, SPEED_X=220, MAX_FALL=1400, MAX_RISE=1000;
-const MAX_JUMP_PX = Math.floor((JUMP_VY*JUMP_VY) / (2*G)); // для уровня 3
+const MAX_JUMP_PX = Math.floor((JUMP_VY*JUMP_VY) / (2*G));
 const MIN_OVERLAP=9, TOP_TOLERANCE=2.5;
 const FRICTION_GROUND=0.82, FRICTION_AIR=0.985;
 function applyFriction(vx,onGround,dt){ const k=Math.pow(onGround?FRICTION_GROUND:FRICTION_AIR,dt*60); return Math.abs(vx)<1?0:vx*k; }
 const COYOTE=0.08, BUFFER=0.10;
 
-// ------- Rendering helpers -------
 function recalcPlayerSize(){
   if(!hoppy || !hoppy.ready){ return; }
   const s = H / BASE_H;
@@ -260,7 +261,6 @@ function updateHitboxOffsets(){
 }
 function getHitbox(){ return { x:player.x+HITBOX_OFFSET_X, y:player.y+HITBOX_OFFSET_Y, w:player.w-HITBOX_OFFSET_X*2, h:player.h-HITBOX_OFFSET_Y }; }
 
-// ------- Assets -------
 hoppy.img.onload = ()=>{
   hoppy.ready = true;
   hoppy.naturalW = hoppy.img.naturalWidth;
@@ -272,11 +272,9 @@ hoppy.img.onload = ()=>{
 };
 hoppy.img.src = "assets/hoppy.png";
 
-// Timings for yellow platforms
 const T_PREVIEW=0.18, T_ON=1.20, T_WARN=0.30, T_OFF=0.30, REST_DELAY=0.35, CYCLE=T_PREVIEW+T_ON+T_WARN+T_OFF, CYCLE_EXT=CYCLE+REST_DELAY;
 const APPEAR_SOLID_DELAY=0.05, VANISH_COYOTE=0.10;
 
-// Sprites
 const SPRITES = { green: [], yellow: [] };
 (function loadPacks(){
   ["assets/green_1.png","assets/green_2.png","assets/green_3.png"].forEach(fn=>{
@@ -297,14 +295,12 @@ function recomputeSizesWhenReady(){
   else { setTimeout(recomputeSizesWhenReady, 30); }
 }
 
-// ------- Finish button (PNG) -------
 const finish={x:60,y: 20,w:280,h:44};
 let cancelImg = new Image();
 let cancelImgOK = false;
 cancelImg.onload = ()=>{ cancelImgOK = true; };
 cancelImg.src = "assets/cancel.png";
 
-// ------- Level state -------
 const SCALE_GREEN = 0.18, SCALE_YELLOW = 0.205;
 let platforms=[];
 let currentLevel = 1;
@@ -324,7 +320,6 @@ function assignSizeFromSprite(p){
   }
 }
 
-// ----- Level builders -----
 function buildLevel1(){
   platforms = [];
   function addGreen(x,y,idx){ const g={ x:x, y:y, perm:true, spriteColor:'green', spriteIndex:(idx||0)%3 }; assignSizeFromSprite(g); platforms.push(g); return g; }
@@ -355,7 +350,6 @@ function buildLevel2(){
   cameraY = 0; cameraMaxY = 0;
 }
 
-// --- Level 3 ---
 const BUTTON_WORLD_Y = 12;
 function buildLevel3(){
   platforms = [];
@@ -421,13 +415,11 @@ function buildLevel3(){
   cameraY = Math.max(0, Math.min(cameraMaxY, G[STEPS-1].y - (H - 120)));
 }
 
-// Helpers reused by multiple levels
 function shiftPlatformsBy(dy){
   if(!platforms || !platforms.length) return;
   for(const p of platforms){ p.y = Math.round(p.y + dy); }
 }
 
-// Switch level and reset state for it
 function setLevel(n){
   currentLevel = n;
   timeSec = 0; timerElapsed = 0; gameState='play';
@@ -439,7 +431,6 @@ function setLevel(n){
   spawnOnBottomPlatform();
 }
 
-// ------- Animations & platform state for yellow -------
 const POP_IN_START = 0.86, POP_IN_OVERSHOOT = 1.04, ALPHA_SOLID_THRESHOLD = 0.95;
 function easeOutBack(t){ const c1=1.70158, c3=c1+1; return 1 + c3*Math.pow(t-1,3) + c1*Math.pow(t-1,2); }
 function easeInQuad(t){ return t*t; }
@@ -500,28 +491,25 @@ function bridgeIsSolidForLanding(p){
   return false;
 }
 
-// ------- UI / Timer -------
-let TIMER_TOTAL = 12.0; // default; overridden per level
+let TIMER_TOTAL = 12.0;
 function getTimerTotal(level){
   if(level===1) return 12.0;
   if(level===2) return 10.0;
-  return 8.5; // level 3 and above
+  return 8.5;
 } let timerElapsed=0;
 function timerProgress(){ return Math.max(0, Math.min(1, timerElapsed/TIMER_TOTAL)); }
 
 let uiButtons=[];
 
-// Overlay background sprites
 const OVERLAY = {
   win:  { img: new Image(), ready: false, w: 0, h: 0 },
   lose: { img: new Image(), ready: false, w: 0, h: 0 }
 };
 OVERLAY.win.img.onload  = ()=>{ OVERLAY.win.ready = true;  OVERLAY.win.w = OVERLAY.win.img.naturalWidth; OVERLAY.win.h = OVERLAY.win.img.naturalHeight; };
 OVERLAY.lose.img.onload = ()=>{ OVERLAY.lose.ready = true; OVERLAY.lose.w = OVERLAY.lose.img.naturalWidth; OVERLAY.lose.h = OVERLAY.lose.img.naturalHeight; };
-OVERLAY.win.img.src  = "assets/continue.png";  // WIN
+OVERLAY.win.img.src  = "assets/continue.png";
 OVERLAY.lose.img.src = "assets/gameover.png";
 
-// Animation clock for overlay (pulse)
 let overlayClock = 0;
 
 function roundRectPath(x,y,w,h,r){
@@ -547,7 +535,6 @@ function drawOutlinedText(ctx,text,x,y,opt){
   ctx.fillStyle=fill; ctx.fillText(text,x,y); ctx.restore();
 }
 
-// --- Fixed centered button ---
 function drawButton(){
   if (!cancelImgOK) return;
   const targetW = Math.round(W * 0.6825);
@@ -589,7 +576,6 @@ function drawTimer(){
   }
 }
 
-// ------- Drawing -------
 function drawPlatformSprite(p, offsetX){
   const pack = SPRITES[p.spriteColor];
   const img = (pack && pack.length>0) ? pack[p.spriteIndex % pack.length] : null;
@@ -658,16 +644,14 @@ function drawHoppy(offsetX){
   ctx.restore();
 }
 
-// ------- Overlay & input -------
 function drawOverlay(title, actions){
-  // Dim background
+
   ctx.save();
   ctx.globalAlpha = 0.55;
   ctx.fillStyle = '#000';
   ctx.fillRect(0,0,W,H);
   ctx.restore();
 
-  // Background image
   const kind = (gameState === 'win') ? 'win' : 'lose';
   const bg = OVERLAY[kind];
   const img = bg ? bg.img : null;
@@ -675,7 +659,6 @@ function drawOverlay(title, actions){
   const iH = (bg && bg.h) ? bg.h : 535;
   const aspect = iW / iH;
 
-  // Compact size
   const maxW = Math.min(W * 0.63, 294);
   const maxH = Math.min(H * 0.49, 196);
   let boxW = maxW, boxH = Math.round(maxW / aspect);
@@ -683,7 +666,6 @@ function drawOverlay(title, actions){
   const bx = Math.round((W - boxW)/2);
   const by = Math.round((H - boxH)/2);
 
-  // Ensure overlay is fully opaque
   ctx.globalAlpha = 1.0;
 
   if (img) ctx.drawImage(img, bx, by, boxW, boxH);
@@ -702,7 +684,6 @@ function drawOverlay(title, actions){
     ctx.restore();
   }
 
-  // Inner layout
   const padX = Math.round(boxW * 0.09);
   const padY = Math.round(boxH * 0.18);
   const innerY = by + padY;
@@ -710,7 +691,7 @@ function drawOverlay(title, actions){
   const innerH = boxH - padY - Math.round(boxH*0.10);
 
   if (gameState === 'win') {
-    // Header
+
     ctx.save();
     ctx.fillStyle = '#2E2E2E';
     ctx.font = '700 20px system-ui';
@@ -719,7 +700,6 @@ function drawOverlay(title, actions){
     ctx.fillText('УРОВЕНЬ ' + currentLevel, bx + boxW/2, innerY + Math.round(innerH * 0.18));
     ctx.restore();
 
-    // Subtitle
     ctx.save();
     ctx.fillStyle = '#2E2E2E';
     ctx.font = '600 16px system-ui';
@@ -728,7 +708,7 @@ function drawOverlay(title, actions){
     ctx.fillText('Протокол остановлен', bx + boxW/2, innerY + Math.round(innerH * 0.33));
     ctx.restore();
   } else {
-    // Lose
+
     ctx.save();
     ctx.fillStyle = '#2E2E2E';
     ctx.font = '700 20px system-ui';
@@ -738,7 +718,6 @@ function drawOverlay(title, actions){
     ctx.restore();
   }
 
-  // Buttons
   uiButtons.length = 0;
   const btnW = Math.max(118, Math.min(136, Math.round(innerW*0.42)));
   const btnH = 40;
@@ -756,7 +735,6 @@ function drawOverlay(title, actions){
     const x = x0;
     const y = yb;
 
-    // Special red style for lose
     const isLose = (gameState === 'lose');
 
     if ( (gameState === 'win' && isPrimary) || (gameState === 'lose') ) {
@@ -775,7 +753,7 @@ function drawOverlay(title, actions){
     ctx.closePath();
 
     if (isLose) {
-      // Red button style for lose
+
       const grad = ctx.createLinearGradient(0,y,0,y+btnH);
       grad.addColorStop(0, '#E74C3C');
       grad.addColorStop(1, '#FF6B4A');
@@ -825,7 +803,6 @@ function drawOverlay(title, actions){
   }
 }
 
-// ------- Overlay input (click + touch) -------
 function triggerOverlayActionAt(x, y){
   for(const b of uiButtons){
     if(x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
@@ -879,9 +856,7 @@ addEventListener('touchend', (e)=>{
 }, { passive:false });
 
 addEventListener('touchcancel', ()=>{ overlayPressedIndex = -1; });
-// ------- end overlay input -------
 
-// ------- Win logic -------
 function checkWinByBodyCenter(prevHB,newHB){
   const yMid=finish.y + finish.h/2;
   const left=finish.x, right=finish.x+finish.w;
@@ -892,7 +867,6 @@ function checkWinByBodyCenter(prevHB,newHB){
   return (cyPrev>yMid)&&(cyNew<=yMid);
 }
 
-// ------- Loop -------
 function spawnOnBottomPlatform(){
   let baseIndex = -1;
   for(let i=0;i<platforms.length;i++){ if(platforms[i].perm){ if(baseIndex===-1 || platforms[i].y>platforms[baseIndex].y) baseIndex=i; } }
@@ -911,11 +885,11 @@ function spawnOnBottomPlatform(){
 }
 
 function resetTransientForYellow(){
-  for(const p of platforms){ 
-    if(!p.perm){ 
-      p.state='off'; p.prevState='off'; p.tLocal=0; p.grace=0; p.solidDelay=0; p.waitExit=false; 
-      setAnim(p,'out',0); if(p.anim) p.anim.alpha=0; 
-    } 
+  for(const p of platforms){
+    if(!p.perm){
+      p.state='off'; p.prevState='off'; p.tLocal=0; p.grace=0; p.solidDelay=0; p.waitExit=false;
+      setAnim(p,'out',0); if(p.anim) p.anim.alpha=0;
+    }
   }
 }
 
@@ -936,24 +910,24 @@ function step(nowTS){
   if(gameState==='play'){
     let targetVx=0;
     const baseSpeed = SPEED_X * (IS_TOUCH ? MOBILE_SPEED_FACTOR : 1.0);
-    // Принудительный короткий «тычок» после быстрого тапа (без фиксации клавиш)
+
     if(IS_TOUCH && overrideMove.active){
       if(timeSec <= overrideMove.until){
         if(overrideMove.side < 0){ targetVx -= baseSpeed * NUDGE_SPEED_SCALE; player.dir = -1; }
         else { targetVx += baseSpeed * NUDGE_SPEED_SCALE; player.dir = +1; }
       } else {
         overrideMove.active = false;
-        // Убедимся, что после «тычка» не осталось зажатых направлений
+
         keys.left = false; keys.right = false;
       }
     }
     if(keys.right)targetVx+=baseSpeed; if(keys.left)targetVx-=baseSpeed;
-    // Плавный разгон/замедление вместо мгновенных скачков
+
     const accelPerS = player.on ? ACCEL_GROUND_PER_S : (ACCEL_AIR_PER_S * AIR_CONTROL_FACTOR);
     const lerpK = Math.min(1, accelPerS * dt);
     const desired = targetVx;
     player.vx = player.vx + (desired - player.vx) * lerpK;
-    // Если нет цели — применяем трение
+
     if(Math.abs(desired) < 1){ player.vx = applyFriction(player.vx, player.on, dt); }
     const canCoyote=(timeSec-lastGroundTime)<=COYOTE;
     const buffered=(timeSec-lastJumpPress)<=BUFFER;
@@ -962,7 +936,6 @@ function step(nowTS){
     player.vy+=G*dt; if(player.vy>MAX_FALL)player.vy=MAX_FALL; if(player.vy<-MAX_RISE)player.vy=-MAX_RISE;
     player.x+=player.vx*dt; player.y+=player.vy*dt; player.on=false;
 
-    // камера только на уровне 3
     if(currentLevel===3){
       const camTarget = Math.max(0, Math.min(cameraMaxY, player.y - H*0.60));
       cameraY += (camTarget - cameraY) * 0.12;
@@ -992,7 +965,7 @@ function step(nowTS){
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0,0,W,H);
   const offsetX = Math.round((W - BASE_W) / 2);
-  drawButton(); // centered in W, independent of offsetX
+  drawButton();
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
   drawTimer();
@@ -1019,7 +992,6 @@ function step(nowTS){
 
 resizeCanvas();
 
-// Keyboard (desktop unchanged)
 addEventListener('keydown',e=>{ if(gameState!=='play')return;
   if(e.key==='ArrowLeft'||e.key==='a'){keys.left=true; player.dir=-1;}
   if(e.key==='ArrowRight'||e.key==='d'){keys.right=true; player.dir=1;}
