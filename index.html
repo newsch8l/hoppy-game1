@@ -18,6 +18,14 @@ let DPR = Math.max(1, Math.round(window.devicePixelRatio || 1));
 
 const c = document.getElementById('cv');
 
+// --- Mobile detection & tuning ---
+const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+const MOBILE_SPEED_FACTOR = 0.65;   // ~65% горизонтальной скорости
+const AIR_CONTROL_FACTOR   = 0.5;    // ослабление управления в воздухе
+const ACCEL_GROUND_PER_S   = 8.0;    // сек^-1, плавный разгон на земле
+const ACCEL_AIR_PER_S      = 4.0;    // сек^-1, мягче в воздухе
+
+
 // Predeclare frequently used state so early event handlers see them
 let ctx;
 let W = BASE_W, H = BASE_H;
@@ -30,25 +38,32 @@ const keys={left:false,right:false,up:false};
 // --- Camera (используется только на уровне 3) ---
 let cameraY = 0, cameraMaxY = 0;
 
-// ----- Mobile touch controls (left/right halves + swipe up to jump) -----
+// ----- Mobile touch controls (zones + vertical swipe) -----
 (function(){
-  const DEADZONE = 22; // px
+  const DEADZONE = 18;           // px: дрожание пальца игнорируем
+  const SWIPE_MIN = 36;          // px: минимальная длина свайпа
+  const SWIPE_VERT_RATIO = 1.2;  // |dy| должен быть на 20% больше |dx| для 'вверх'
+
   let activeId = null;
-  let startX = 0, startY = 0;
+  let startX = 0, startY = 0, startTS = 0;
   let didJump = false;
+  let sideHeld = 0;      // -1 = левая половина, +1 = правая, 0 = нет
+  let moveActive = false; // когда реально включили движение
+  let movedOnce = false;  // использовано для активации движения по задержке
 
   function canvasPos(t){
     const r = c.getBoundingClientRect();
     return { x: (t.clientX - r.left), y: (t.clientY - r.top), w: r.width, h: r.height };
   }
 
-  function setDirByX(px, w){
-    const center = w * 0.5;
-    if(px < center){
-      keys.left = true; keys.right = false; player.dir = -1;
-    }else{
-      keys.right = true; keys.left = false; player.dir = 1;
-    }
+  function sideOf(px, w){ return (px < w*0.5) ? -1 : +1; }
+
+  function engageMove(){
+    if(sideHeld<0){ keys.left = true; keys.right = false; player.dir = -1; moveActive = true; }
+    else if(sideHeld>0){ keys.right = true; keys.left = false; player.dir = +1; moveActive = true; }
+  }
+  function stopMove(){
+    keys.left = false; keys.right = false; moveActive = false;
   }
 
   c.addEventListener('touchstart', (e)=>{
@@ -56,10 +71,12 @@ let cameraY = 0, cameraMaxY = 0;
     const t = e.changedTouches[0];
     activeId = t.identifier;
     const p = canvasPos(t);
-    startX = p.x; startY = p.y; didJump = false;
+    startX = p.x; startY = p.y; startTS = performance.now();
+    didJump = false; moveActive = false; movedOnce = false;
+    sideHeld = sideOf(p.x, p.w);
 
     if(gameState === 'play'){
-      setDirByX(p.x, p.w);
+      // На старте НЕ включаем движение. Ждём либо вертикальный свайп, либо активацию движения.
       e.preventDefault();
     }
   }, { passive: false });
@@ -74,28 +91,60 @@ let cameraY = 0, cameraMaxY = 0;
     const dy = p.y - startY;
 
     if(gameState === 'play'){
-      if(!didJump && (-dy > DEADZONE) && (Math.abs(dy) > Math.abs(dx))){
+      const absX = Math.abs(dx), absY = Math.abs(dy);
+
+      // Проверяем вертикальный свайп 'вверх'
+      const isUpSwipe = (-dy > SWIPE_MIN) && (absY > absX * SWIPE_VERT_RATIO);
+      if(!didJump && isUpSwipe){
+        // Прыжок: если движение уже активно — это прыжок в сторону; иначе — строго вверх
         if(!keys.up){
           lastJumpPress = timeSec;
           player.jumpHeld = true;
         }
         keys.up = true;
         didJump = true;
-      } else {
-        setDirByX(p.x, p.w);
+
+        if(!moveActive){
+          // Чистый вертикальный прыжок: не включаем движение
+          stopMove();
+        } else {
+          // Движение сохраняем как есть
+        }
+        e.preventDefault();
+        return;
       }
+
+      // Если это не свайп вверх — можно включить движение по стороне
+      // Активируем движение при лёгком смещении или короткой задержке
+      const elapsed = performance.now() - startTS;
+      if(!moveActive){
+        if(absX > DEADZONE && absX >= absY){
+          engageMove(); movedOnce = true;
+        } else if(elapsed > 90 && absY <= SWIPE_MIN){ // небольшая задержка ~0.09с
+          engageMove();
+        }
+      } else {
+        // Уже двигаемся — обновляем сторону, если палец переехал в другую половину
+        const newSide = sideOf(p.x, p.w);
+        if(newSide !== sideHeld){
+          sideHeld = newSide;
+          engageMove();
+        }
+      }
+
       e.preventDefault();
     }
   }, { passive: false });
 
   function endTouch(){
-    keys.left = false; keys.right = false;
+    stopMove();
     if(keys.up){
       keys.up = false;
       player.jumpHeld = false;
       if(player.vy < 0) player.vy *= 0.55;
     }
     activeId = null;
+    sideHeld = 0;
   }
 
   c.addEventListener('touchend', (e)=>{
@@ -848,8 +897,16 @@ function step(nowTS){
   const dt=Math.min(0.033,(nowTS-lastTS)/1000); lastTS=nowTS;
   if(gameState==='play'){ timeSec+=dt; timerElapsed+=dt; if(timerElapsed>=TIMER_TOTAL) gameState='lose'; }
   if(gameState==='play'){
-    let targetVx=0; if(keys.right)targetVx+=SPEED_X; if(keys.left)targetVx-=SPEED_X;
-    player.vx=(targetVx!==0)?targetVx:applyFriction(player.vx,player.on,dt);
+    let targetVx=0;
+    const baseSpeed = SPEED_X * (IS_TOUCH ? MOBILE_SPEED_FACTOR : 1.0);
+    if(keys.right)targetVx+=baseSpeed; if(keys.left)targetVx-=baseSpeed;
+    // Плавный разгон/замедление вместо мгновенных скачков
+    const accelPerS = player.on ? ACCEL_GROUND_PER_S : (ACCEL_AIR_PER_S * AIR_CONTROL_FACTOR);
+    const lerpK = Math.min(1, accelPerS * dt);
+    const desired = targetVx;
+    player.vx = player.vx + (desired - player.vx) * lerpK;
+    // Если нет цели — применяем трение
+    if(Math.abs(desired) < 1){ player.vx = applyFriction(player.vx, player.on, dt); }
     const canCoyote=(timeSec-lastGroundTime)<=COYOTE;
     const buffered=(timeSec-lastJumpPress)<=BUFFER;
     if(buffered&&(player.on||canCoyote)){ player.vy=JUMP_VY; player.on=false; lastJumpPress=-1; }
