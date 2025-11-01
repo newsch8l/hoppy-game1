@@ -749,7 +749,48 @@ function drawOverlay(title, actions){
 addEventListener('click', (e)=>{
   if(!(gameState === 'win' || gameState === 'lose')) return;
   const rect = c.getBoundingClientRect();
-  const x = (e.clientX - rect.left);
+  
+// Touch support for overlay buttons (win/lose)
+(function(){
+  let pressed = null;
+  addEventListener('touchstart', (e)=>{
+    if(!(gameState === 'win' || gameState === 'lose')) return;
+    const t = e.changedTouches[0];
+    const rect = c.getBoundingClientRect();
+    const x = (t.clientX - rect.left);
+    const y = (t.clientY - rect.top);
+    pressed = null;
+    for (let i=0;i<uiButtons.length;i++){
+      const b = uiButtons[i];
+      if(x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
+        pressed = i;
+        break;
+      }
+    }
+    if(pressed !== null){ e.preventDefault(); }
+  }, { passive:false });
+
+  addEventListener('touchend', (e)=>{
+    if(!(gameState === 'win' || gameState === 'lose')) return;
+    if(pressed === null) return;
+    const t = e.changedTouches[0];
+    const rect = c.getBoundingClientRect();
+    const x = (t.clientX - rect.left);
+    const y = (t.clientY - rect.top);
+    const b = uiButtons[pressed];
+    if(b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
+      // Trigger the same actions as in click handler
+      if(b.action === 'restart'){ setLevel(1); }
+      if(b.action === 'next'){ if(currentLevel < LAST_LEVEL) setLevel(currentLevel+1); }
+      if(b.action === 'again_all'){ setLevel(1); }
+    }
+    pressed = null;
+    e.preventDefault();
+  }, { passive:false });
+
+  addEventListener('touchcancel', ()=>{ pressed = null; });
+})();
+const x = (e.clientX - rect.left);
   const y = (e.clientY - rect.top);
   for(const b of uiButtons){
     if(x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
