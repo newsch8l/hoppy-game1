@@ -757,8 +757,11 @@ addEventListener('click', (e)=>{
     if(!(gameState === 'win' || gameState === 'lose')) return;
     const t = e.changedTouches[0];
     const rect = c.getBoundingClientRect();
-    const x = (t.clientX - rect.left);
-    const y = (t.clientY - rect.top);
+    let x = (t.clientX - rect.left);
+    let y = (t.clientY - rect.top);
+    const sx = c.width / rect.width;
+    const sy = c.height / rect.height;
+    x *= sx; y *= sy;
     pressed = null;
     for (let i=0;i<uiButtons.length;i++){
       const b = uiButtons[i];
@@ -775,8 +778,11 @@ addEventListener('click', (e)=>{
     if(pressed === null) return;
     const t = e.changedTouches[0];
     const rect = c.getBoundingClientRect();
-    const x = (t.clientX - rect.left);
-    const y = (t.clientY - rect.top);
+    let x = (t.clientX - rect.left);
+    let y = (t.clientY - rect.top);
+    const sx = c.width / rect.width;
+    const sy = c.height / rect.height;
+    x *= sx; y *= sy;
     const b = uiButtons[pressed];
     if(b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
       // Trigger the same actions as in click handler
