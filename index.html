@@ -20,7 +20,7 @@ const c = document.getElementById('cv');
 
 // --- Mobile detection & tuning ---
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-const MOBILE_SPEED_FACTOR = 0.65;   // ~65% горизонтальной скорости
+const MOBILE_SPEED_FACTOR = 0.7475; // +15% к предыдущему (≈75% базовой скорости)
 const AIR_CONTROL_FACTOR   = 0.5;    // ослабление управления в воздухе
 const ACCEL_GROUND_PER_S   = 8.0;    // сек^-1, плавный разгон на земле
 const ACCEL_AIR_PER_S      = 4.0;    // сек^-1, мягче в воздухе
@@ -41,8 +41,10 @@ let cameraY = 0, cameraMaxY = 0;
 // ----- Mobile touch controls (zones + vertical swipe) -----
 (function(){
   const DEADZONE = 18;           // px: дрожание пальца игнорируем
-  const SWIPE_MIN = 36;          // px: минимальная длина свайпа
-  const SWIPE_VERT_RATIO = 1.2;  // |dy| должен быть на 20% больше |dx| для 'вверх'
+  const SWIPE_MIN = 28;          // px: минимальная длина свайпа (было 36)
+  const SWIPE_VERT_RATIO = 0.95; // вертикаль допускает чуть больше косины (было 1.2)
+  const SWIPE_MIN_RELAX = 22;    // ещё мягче — только если движение не активно
+  const SWIPE_VERT_RATIO_RELAX = 0.80; // мягкий режим: достаточно, чтобы вертикаль преобладала
 
   let activeId = null;
   let startX = 0, startY = 0, startTS = 0;
@@ -95,7 +97,9 @@ let cameraY = 0, cameraMaxY = 0;
 
       // Проверяем вертикальный свайп 'вверх'
       const isUpSwipe = (-dy > SWIPE_MIN) && (absY > absX * SWIPE_VERT_RATIO);
-      if(!didJump && isUpSwipe){
+      // Доп. мягкий путь: если движение ещё не активно, допускаем более короткий и косой свайп вверх
+      const isUpSwipeRelax = (!moveActive) && (-dy > SWIPE_MIN_RELAX) && (absY > absX * SWIPE_VERT_RATIO_RELAX);
+      if(!didJump && (isUpSwipe || isUpSwipeRelax)){
         // Прыжок: если движение уже активно — это прыжок в сторону; иначе — строго вверх
         if(!keys.up){
           lastJumpPress = timeSec;
