@@ -151,6 +151,8 @@ let cameraY = 0, cameraMaxY = 0;
     if(gameState === 'play'){
       const absX = Math.abs(dx), absY = Math.abs(dy);
       const pathLen = Math.hypot(dx, dy);
+      const movingHoriz = moveActive || keys.left || keys.right;
+      const upThreshold = movingHoriz ? 70 : UP_MIN;  // на бегу требуем более сильный свайп вверх
 
       // Recenter origin if finger drifted far
       if(pathLen > RECENTER_DIST){
@@ -168,9 +170,9 @@ let cameraY = 0, cameraMaxY = 0;
 
       // Not jumped yet
       // 1) Check strong upward intent (pure up)
-      const pureUp = (pathLen > PATH_MIN) && (-dy > UP_MIN) && (absY > absX * VERT_DOM_RATIO);
+      const pureUp = (pathLen > PATH_MIN) && (-dy > upThreshold) && (absY > absX * VERT_DOM_RATIO);
       // 2) Check diagonal upward intent
-      const diagUp = (-dy > UP_MIN) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
+      const diagUp = (-dy > upThreshold) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
 
       if(pureUp || diagUp){
         if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
@@ -228,14 +230,42 @@ function resizeCanvas(){
   const vw = Math.max(320, window.innerWidth);
   const vh = Math.max(480, window.innerHeight);
   const aspect = BASE_W / BASE_H;
-  let cssH = Math.min(vh - 24, 900);
-  let cssW = Math.round(cssH * aspect);
-  if(cssW > vw - 24){ cssW = vw - 24; cssH = Math.round(cssW / aspect); }
-  c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
-  c.width = Math.round(cssW * DPR); c.height = Math.round(cssH * DPR);
+  let cssW, cssH;
+
+  if (IS_TOUCH && vh >= vw) {
+    // Мобильные устройства в портрете: стараемся занять максимум высоты
+    const deviceAspect = vw / vh;
+    if (deviceAspect >= 0.52) {
+      // Экраны, близкие к 9:16 — подгоняем по высоте, допускаем небольшой выход по ширине
+      cssH = Math.min(vh, 900);
+      cssW = Math.round(cssH * aspect);
+    } else {
+      // Очень вытянутые телефоны — как раньше, подгоняем по ширине
+      cssW = vw - 24;
+      cssH = Math.round(cssW / aspect);
+    }
+  } else {
+    // Десктоп и ландшафт — прежнее поведение
+    cssH = Math.min(vh - 24, 900);
+    cssW = Math.round(cssH * aspect);
+    if (cssW > vw - 24) {
+      cssW = vw - 24;
+      cssH = Math.round(cssW / aspect);
+    }
+  }
+
+  c.style.width = cssW + 'px';
+  c.style.height = cssH + 'px';
+  c.width = Math.round(cssW * DPR);
+  c.height = Math.round(cssH * DPR);
+
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-  W = cssW; H = cssH;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  W = cssW;
+  H = cssH;
+
   recalcPlayerSize();
 }
 addEventListener('resize', resizeCanvas, { passive:true });
@@ -251,8 +281,7 @@ const COYOTE=0.08, BUFFER=0.10;
 // ------- Rendering helpers -------
 function recalcPlayerSize(){
   if(!hoppy || !hoppy.ready){ return; }
-  const sBase = H / BASE_H;
-  const s = IS_TOUCH ? Math.min(1, sBase) : sBase;
+  const s = H / BASE_H;
   const desiredH0 = Math.round(BASE_PLAYER_H * s);
   const desiredW0 = Math.round(BASE_PLAYER_W * s);
   const maxCssH = Math.floor(hoppy.naturalH / DPR);
