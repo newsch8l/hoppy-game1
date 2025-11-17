@@ -20,7 +20,7 @@ const c = document.getElementById('cv');
 
 // --- Mobile detection & tuning ---
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-const MOBILE_SPEED_FACTOR = 0.7475; // +15% к предыдущему (≈75% базовой скорости)
+const MOBILE_SPEED_FACTOR = 0.85;   // ≈85% от десктопной скорости для более отзывчивого управления
 const AIR_CONTROL_FACTOR   = 0.5;    // ослабление управления в воздухе
 const ACCEL_GROUND_PER_S   = 8.0;    // сек^-1, плавный разгон на земле
 const ACCEL_AIR_PER_S      = 4.0;    // сек^-1, мягче в воздухе
@@ -284,8 +284,9 @@ function recalcPlayerSize(){
   const s = H / BASE_H;
   const desiredH0 = Math.round(BASE_PLAYER_H * s);
   const desiredW0 = Math.round(BASE_PLAYER_W * s);
-  const maxCssH = Math.floor(hoppy.naturalH / DPR);
-  const maxCssW = Math.floor(hoppy.naturalW / DPR);
+  const effectiveDPR = IS_TOUCH ? Math.min(DPR, 2) : DPR;
+  const maxCssH = Math.floor(hoppy.naturalH / effectiveDPR);
+  const maxCssW = Math.floor(hoppy.naturalW / effectiveDPR);
   const cappedH = Math.min(desiredH0, maxCssH);
   const cappedW = Math.min(desiredW0, maxCssW);
   const desiredH = Math.max(1, Math.floor(cappedH * VISUAL_SCALE));
