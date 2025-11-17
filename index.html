@@ -284,9 +284,8 @@ function recalcPlayerSize(){
   const s = H / BASE_H;
   const desiredH0 = Math.round(BASE_PLAYER_H * s);
   const desiredW0 = Math.round(BASE_PLAYER_W * s);
-  const effectiveDPR = IS_TOUCH ? Math.min(DPR, 2) : DPR;
-  const maxCssH = Math.floor(hoppy.naturalH / effectiveDPR);
-  const maxCssW = Math.floor(hoppy.naturalW / effectiveDPR);
+  const maxCssH = Math.floor(hoppy.naturalH / DPR);
+  const maxCssW = Math.floor(hoppy.naturalW / DPR);
   const cappedH = Math.min(desiredH0, maxCssH);
   const cappedW = Math.min(desiredW0, maxCssW);
   const desiredH = Math.max(1, Math.floor(cappedH * VISUAL_SCALE));
