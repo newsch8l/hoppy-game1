@@ -151,8 +151,6 @@ let cameraY = 0, cameraMaxY = 0;
     if(gameState === 'play'){
       const absX = Math.abs(dx), absY = Math.abs(dy);
       const pathLen = Math.hypot(dx, dy);
-      const movingHoriz = moveActive || keys.left || keys.right;
-      const upThreshold = movingHoriz ? 70 : UP_MIN;  // на бегу требуем более сильный свайп вверх
 
       // Recenter origin if finger drifted far
       if(pathLen > RECENTER_DIST){
@@ -170,9 +168,9 @@ let cameraY = 0, cameraMaxY = 0;
 
       // Not jumped yet
       // 1) Check strong upward intent (pure up)
-      const pureUp = (pathLen > PATH_MIN) && (-dy > upThreshold) && (absY > absX * VERT_DOM_RATIO);
+      const pureUp = (pathLen > PATH_MIN) && (-dy > UP_MIN) && (absY > absX * VERT_DOM_RATIO);
       // 2) Check diagonal upward intent
-      const diagUp = (-dy > upThreshold) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
+      const diagUp = (-dy > UP_MIN) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
 
       if(pureUp || diagUp){
         if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
@@ -232,12 +230,31 @@ function resizeCanvas(){
   const aspect = BASE_W / BASE_H;
   let cssH = Math.min(vh - 24, 900);
   let cssW = Math.round(cssH * aspect);
-  if(cssW > vw - 24){ cssW = vw - 24; cssH = Math.round(cssW / aspect); }
-  c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
-  c.width = Math.round(cssW * DPR); c.height = Math.round(cssH * DPR);
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-  W = cssW; H = cssH;
+  if (cssW > vw - 24) {
+    cssW = vw - 24;
+    cssH = Math.round(cssW / aspect);
+  }
+
+  c.style.width = cssW + 'px';
+  c.style.height = cssH + 'px';
+  c.width = Math.round(cssW * DPR);
+  c.height = Math.round(cssH * DPR);
+
+  if (IS_TOUCH) {
+    // На мобильных держим игровую область фиксированной 400x700 и масштабируем целиком,
+    // чтобы композиция (кнопка, платформы, персонаж) совпадала с базовым 9:16.
+    const scale = cssH / BASE_H;
+    ctx.setTransform(DPR * scale, 0, 0, DPR * scale, 0, 0);
+    W = BASE_W;
+    H = BASE_H;
+  } else {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    W = cssW;
+    H = cssH;
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   recalcPlayerSize();
 }
 addEventListener('resize', resizeCanvas, { passive:true });
@@ -349,7 +366,7 @@ function buildLevel1(){
   function addGreen(x,y,idx){ const g={ x:x, y:y, perm:true, spriteColor:'green', spriteIndex:(idx||0)%3 }; assignSizeFromSprite(g); platforms.push(g); return g; }
 
   const left = 50, right = 230;
-  const safeBottom = H - 280;
+  const safeBottom = 620; // фиксированное положение для 9:16 и десктопа
   const gapY = 130;
   addGreen(left,  safeBottom - 0*gapY, 0);
   addGreen(right, safeBottom - 1*gapY, 1);
@@ -364,7 +381,7 @@ function buildLevel2(){
   function addYellow(x,y){ const yel={ x:x, y:y, perm:false, spriteColor:'yellow', spriteIndex:2, phaseOffset:0.15, state:'off', prevState:'off', tLocal:0, grace:0, solidDelay:20, waitExit:false, anim:{alpha:0, scale:1, phase:'out', t:0, dur:0} }; assignSizeFromSprite(yel); platforms.push(yel); return yel; }
 
   const left = 50, right = 230;
-  const safeBottom = H - 220;
+  const safeBottom = 680; // фиксированное положение для 9:16 и десктопа
   const gapY = 120;
   addGreen(left,  safeBottom - 0*gapY, 0);
   addGreen(right, safeBottom - 1*gapY, 1);
