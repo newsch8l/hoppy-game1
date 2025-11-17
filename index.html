@@ -151,6 +151,8 @@ let cameraY = 0, cameraMaxY = 0;
     if(gameState === 'play'){
       const absX = Math.abs(dx), absY = Math.abs(dy);
       const pathLen = Math.hypot(dx, dy);
+      const movingHoriz = moveActive || keys.left || keys.right;
+      const upThreshold = movingHoriz ? 55 : UP_MIN;
 
       // Recenter origin if finger drifted far
       if(pathLen > RECENTER_DIST){
@@ -168,9 +170,9 @@ let cameraY = 0, cameraMaxY = 0;
 
       // Not jumped yet
       // 1) Check strong upward intent (pure up)
-      const pureUp = (pathLen > PATH_MIN) && (-dy > UP_MIN) && (absY > absX * VERT_DOM_RATIO);
+      const pureUp = (pathLen > PATH_MIN) && (-dy > upThreshold) && (absY > absX * VERT_DOM_RATIO);
       // 2) Check diagonal upward intent
-      const diagUp = (-dy > UP_MIN) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
+      const diagUp = (-dy > upThreshold) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
 
       if(pureUp || diagUp){
         if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
