@@ -284,8 +284,10 @@ function recalcPlayerSize(){
   const s = H / BASE_H;
   const desiredH0 = Math.round(BASE_PLAYER_H * s);
   const desiredW0 = Math.round(BASE_PLAYER_W * s);
-  const maxCssH = Math.floor(hoppy.naturalH / DPR);
-  const maxCssW = Math.floor(hoppy.naturalW / DPR);
+  // На десктопе учитываем DPR как раньше, на тач-устройствах не режем размер по DPR,
+  // чтобы Хоппи был такого же видимого масштаба, как и на десктопе.
+  const maxCssH = Math.floor(hoppy.naturalH / (IS_TOUCH ? 1 : DPR));
+  const maxCssW = Math.floor(hoppy.naturalW / (IS_TOUCH ? 1 : DPR));
   const cappedH = Math.min(desiredH0, maxCssH);
   const cappedW = Math.min(desiredW0, maxCssW);
   const desiredH = Math.max(1, Math.floor(cappedH * VISUAL_SCALE));
