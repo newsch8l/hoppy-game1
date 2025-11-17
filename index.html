@@ -152,7 +152,7 @@ let cameraY = 0, cameraMaxY = 0;
       const absX = Math.abs(dx), absY = Math.abs(dy);
       const pathLen = Math.hypot(dx, dy);
       const movingHoriz = moveActive || keys.left || keys.right;
-      const upThreshold = movingHoriz ? 55 : UP_MIN;
+      const upThreshold = movingHoriz ? 70 : UP_MIN;  // на бегу требуем более сильный свайп вверх
 
       // Recenter origin if finger drifted far
       if(pathLen > RECENTER_DIST){
