@@ -35,9 +35,6 @@ let overrideMove = {active:false, side:0, until:0};
 // Predeclare frequently used state so early event handlers see them
 let ctx;
 let W = BASE_W, H = BASE_H;
-function getGameOffsetX(){
-  return Math.max(0, Math.round((W - BASE_W) / 2));
-}
 let gameState = 'play';
 const hoppy = { img: new Image(), ready: false, naturalW: 0, naturalH: 0 };
 const player = { x: 0, y: 20, w: BASE_PLAYER_W, h: BASE_PLAYER_H, vx:0, vy: 20, dir:1, on:false, jumpHeld:false };
@@ -615,11 +612,14 @@ function drawButton(){
   ctx.restore();
 }
 
-function drawTimer(){
+function drawTimer(offsetX){
   const p = timerProgress();
-  const offsetX = getGameOffsetX();
-  const pad = 8, barH = 24, barW = BASE_W - 40, radius = 12;
-  const x = offsetX + 20;
+  // Строим бар поверх "игрового окна" BASE_W и смещаем его тем же offsetX, что и платформы
+  const pad = 8;
+  const barH = 24;
+  const barW = BASE_W - 40;                 // ширина как у игрового окна, не на всю канву
+  const radius = 12;
+  const x = offsetX + 20;                   // тот же offsetX, что и для платформ, плюс внутренний отступ
   const y = H - pad - barH;
 
   ctx.save();
@@ -669,12 +669,12 @@ function drawTimer(){
     width: 3
   });
 
+  // Красная вспышка оставляем на всю канву, как и раньше
   if (p >= 0.9) {
     const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
     const redAlpha = 0.10 + 0.20 * blink;
     ctx.save();
     ctx.fillStyle = `rgba(255,0,0,${redAlpha.toFixed(2)})`;
-    // красная вспышка по всей канве, как раньше
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
@@ -1082,11 +1082,11 @@ function step(nowTS){
   }
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0,0,W,H);
-  const offsetX = getGameOffsetX();
+  const offsetX = Math.round((W - BASE_W) / 2);
   drawButton(); // centered in W, independent of offsetX
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
-  drawTimer();
+  drawTimer(offsetX);
   if(gameState==='win'){
     if(currentLevel < LAST_LEVEL){
       drawOverlay({text:'Протокол остановлен (Уровень '+currentLevel+')', color:'#2ecc71'}, [
