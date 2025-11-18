@@ -614,12 +614,9 @@ function drawButton(){
 
 function drawTimer(offsetX){
   const p = timerProgress();
-  // Строим бар поверх "игрового окна" BASE_W и смещаем его тем же offsetX, что и платформы
-  const pad = 8;
-  const barH = 24;
-  const barW = BASE_W - 40;                 // ширина как у игрового окна, не на всю канву
-  const radius = 12;
-  const x = offsetX + 20;                   // тот же offsetX, что и для платформ, плюс внутренний отступ
+  const pad = 8, barH = 24, radius = 12;
+  const barW = BASE_W - 40;
+  const x = offsetX + 20;
   const y = H - pad - barH;
 
   ctx.save();
@@ -638,12 +635,10 @@ function drawTimer(offsetX){
     let col = '#2ecc71';
     if (p >= 0.7 && p < 0.9) col = '#f1c40f';
     if (p >= 0.9) col = '#c0392b';
-
     if (p >= 0.9){
       const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
       ctx.globalAlpha = 0.75 + 0.25 * blink;
     }
-
     const rr = Math.min(radius, fillW/2, barH/2);
     ctx.save();
     roundRectPath(x, y, fillW, barH, rr);
@@ -651,7 +646,6 @@ function drawTimer(offsetX){
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.restore();
-
     ctx.save();
     roundRectPath(x, y, fillW, barH, rr);
     ctx.lineWidth = 1.5;
@@ -669,7 +663,6 @@ function drawTimer(offsetX){
     width: 3
   });
 
-  // Красная вспышка оставляем на всю канву, как и раньше
   if (p >= 0.9) {
     const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
     const redAlpha = 0.10 + 0.20 * blink;
