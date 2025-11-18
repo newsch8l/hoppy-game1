@@ -48,6 +48,7 @@ let cameraY = 0, cameraMaxY = 0;
 (function(){
   // Geometry & thresholds
   const DEADZONE = 16;            // px: вокруг origin движения нет
+  const DEADZONE_DEACTIVATE = DEADZONE * 0.55; // гистерезис: останавливаемся ближе к центру, чем начинаем движение
   const PATH_MIN = 40;            // px: общий минимум пути для прыжка
   const UP_MIN = 32;              // px: минимальная вертикаль для прыжка
   const VERT_DOM_RATIO = 1.05;    // вертикаль должна быть сильнее горизонтали
@@ -154,8 +155,8 @@ let cameraY = 0, cameraMaxY = 0;
       const movingHoriz = moveActive || keys.left || keys.right;
       const upThreshold = movingHoriz ? 70 : UP_MIN;  // на бегу требуем более сильный свайп вверх
 
-      // Recenter origin if finger drifted far
-      if(pathLen > RECENTER_DIST){
+      // Recenter origin if finger drifted far, но только когда не бежим и не прыгаем
+      if(pathLen > RECENTER_DIST && !moveActive && !keys.left && !keys.right && !didJump){
         originX = p.x; originY = p.y;
       }
 
@@ -185,8 +186,8 @@ let cameraY = 0, cameraMaxY = 0;
       if(absX > DEADZONE && absX >= absY * 0.8){
         if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
         engageMoveBy(dx, p.w);
-      } else if(absX <= DEADZONE && !didJump && moveActive){
-        // If came back near origin, stop to avoid micro-oscillation
+      } else if(absX <= DEADZONE_DEACTIVATE && !didJump && moveActive){
+        // If came очень близко к центру, явно останавливаемся (меньше дерганий на краях)
         stopMove();
       }
 
