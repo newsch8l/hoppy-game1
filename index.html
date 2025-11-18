@@ -620,12 +620,11 @@ function drawTimer(){
   const barW = W - 40;
   let x = 20;
 
-  // На мобильных центрируем бар относительно игрового окна BASE_W,
-  // не трогая ни десктоп, ни ширину бара
+  // На мобильных чуть сдвигаем бар левее, не меняя его ширину
   if (IS_TOUCH) {
     const offsetXBase = Math.round((W - BASE_W) / 2);
     const desiredCenter = offsetXBase + BASE_W / 2;
-    x = desiredCenter - barW / 2;
+    x = desiredCenter - barW / 2 - 16; // лёгкий сдвиг влево
   }
 
   const y = H - pad - barH;
