@@ -612,57 +612,22 @@ function drawButton(){
   ctx.restore();
 }
 
-function drawTimer(offsetX){
-  const p = timerProgress();
-  const pad = 8, barH = 24, radius = 12;
-  const barW = BASE_W - 40;
-  const x = offsetX + 20;
-  const y = H - pad - barH;
-
-  ctx.save();
-  roundRectPath(x, y, barW, barH, radius);
-  ctx.fillStyle = '#e6e8eb';
-  ctx.globalAlpha = 0.85;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-  ctx.stroke();
-  ctx.restore();
-
+function drawTimer(){
+  const p=timerProgress();
+  const pad = 8, barH = 24, barW = W - 40, radius = 12, x = 20, y = H - pad - barH;
+  ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke(); ctx.restore();
   const fillW = Math.max(0, Math.floor(barW * p));
   if (fillW > 0){
-    let col = '#2ecc71';
-    if (p >= 0.7 && p < 0.9) col = '#f1c40f';
-    if (p >= 0.9) col = '#c0392b';
-    if (p >= 0.9){
-      const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
-      ctx.globalAlpha = 0.75 + 0.25 * blink;
-    }
+    let col = '#2ecc71'; if (p >= 0.7 && p < 0.9) col = '#f1c40f'; if (p >= 0.9) col = '#c0392b';
+    if (p >= 0.9){ const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5); ctx.globalAlpha = 0.75 + 0.25 * blink; }
     const rr = Math.min(radius, fillW/2, barH/2);
-    ctx.save();
-    roundRectPath(x, y, fillW, barH, rr);
-    ctx.fillStyle = col;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.restore();
-    ctx.save();
-    roundRectPath(x, y, fillW, barH, rr);
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(0,0,0,0.20)';
-    ctx.stroke();
-    ctx.restore();
+    ctx.save(); roundRectPath(x, y, fillW, barH, rr); ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
+    ctx.save(); roundRectPath(x, y, fillW, barH, rr); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.20)'; ctx.stroke(); ctx.restore();
   }
-
   drawOutlinedText(ctx, 'Очистка системы: ' + Math.floor(p*100) + '%', x + barW/2, y + barH/2, {
-    font: 'bold 14px system-ui',
-    baseline: 'middle',
-    align: 'center',
-    fill: '#fff',
-    stroke: 'rgba(0,0,0,0.95)',
-    width: 3
+    font: 'bold 14px system-ui', baseline: 'middle', align: 'center', fill: '#fff', stroke: 'rgba(0,0,0,0.95)', width: 3
   });
-
   if (p >= 0.9) {
     const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
     const redAlpha = 0.10 + 0.20 * blink;
@@ -1075,11 +1040,28 @@ function step(nowTS){
   }
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0,0,W,H);
-  const offsetX = Math.round((W - BASE_W) / 2);
+  let offsetXBase = Math.round((W - BASE_W) / 2);
+  let offsetX = offsetXBase;
+
+  // On touch devices, keep the visible block of platforms visually centered
+  if (IS_TOUCH && platforms.length) {
+    let minX = Infinity, maxX = -Infinity;
+    for (const p of platforms) {
+      const w = p.w || 0;
+      if (p.x < minX) minX = p.x;
+      if (p.x + w > maxX) maxX = p.x + w;
+    }
+    if (minX < maxX && isFinite(minX) && isFinite(maxX)) {
+      const blockCenterScreen = offsetXBase + (minX + maxX) / 2;
+      const desiredCenter = W / 2;
+      offsetX += (desiredCenter - blockCenterScreen);
+    }
+  }
+
   drawButton(); // centered in W, independent of offsetX
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
-  drawTimer(offsetX);
+  drawTimer();
   if(gameState==='win'){
     if(currentLevel < LAST_LEVEL){
       drawOverlay({text:'Протокол остановлен (Уровень '+currentLevel+')', color:'#2ecc71'}, [
