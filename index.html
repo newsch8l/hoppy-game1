@@ -616,13 +616,18 @@ function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  // Размер прогрессбара не меняем
-  const barW = W - 40;
-  let x = 20;
+  let barW, x;
 
-  // На мобильных центрируем бар строго по центру канваса, не меняя его ширину
   if (IS_TOUCH) {
-    x = (W - barW) / 2;
+    // Мобилка: привязываем прогрессбар к игровому окну BASE_W,
+    // чтобы он совпадал по центру и ширине с колонкой платформ
+    barW = BASE_W - 40;
+    const offsetXBase = Math.round((W - BASE_W) / 2);
+    x = offsetXBase + 20;
+  } else {
+    // Десктоп: оставляем прежнее поведение — на всю ширину канваса с отступами
+    barW = W - 40;
+    x = 20;
   }
 
   const y = H - pad - barH;
