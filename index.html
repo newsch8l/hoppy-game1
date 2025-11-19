@@ -1048,21 +1048,7 @@ function step(nowTS){
   let offsetXBase = Math.round((W - BASE_W) / 2);
   let offsetX = offsetXBase;
 
-  // On touch devices, keep the visible block of platforms visually centered
-  if (IS_TOUCH && platforms.length) {
-    let minX = Infinity, maxX = -Infinity;
-    for (const p of platforms) {
-      const w = p.w || 0;
-      if (p.x < minX) minX = p.x;
-      if (p.x + w > maxX) maxX = p.x + w;
-    }
-    if (minX < maxX && isFinite(minX) && isFinite(maxX)) {
-      const blockCenterScreen = offsetXBase + (minX + maxX) / 2;
-      const desiredCenter = W / 2;
-      offsetX += (desiredCenter - blockCenterScreen);
-    }
-  }
-
+  // World and HUD share the same horizontal center based on canvas width
   drawButton(); // centered in W, independent of offsetX
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
