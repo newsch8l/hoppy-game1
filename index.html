@@ -621,14 +621,15 @@ function drawOutlinedText(ctx,text,x,y,opt){
 }
 
 // --- Fixed centered button ---
-function drawButton(){
+function drawButton(frameX){
   if (!cancelImgOK) return;
-  const targetW = Math.round(W * 0.6825);
+  // Кнопка центрируется относительно «экрана игры», а не всей ширины канваса
+  const targetW = Math.round(BASE_W * 0.6825);
   const ar = cancelImg.height / cancelImg.width;
   const targetH = Math.round(targetW * ar);
   finish.w = targetW;
   finish.h = targetH;
-  finish.x = Math.round((W - finish.w) / 2);
+  finish.x = Math.round(frameX + (BASE_W - finish.w) / 2);
   ctx.save();
   if(currentLevel === 3){ ctx.translate(0, -cameraY); }
   ctx.imageSmoothingEnabled = true;
@@ -636,12 +637,13 @@ function drawButton(){
   ctx.restore();
 }
 
-function drawTimer(){
+function drawTimer(frameX){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  const barW = W - 40;
-  const x = 20;
+  // Прогрессбар живёт внутри «экрана игры» (BASE_W), а не по всей ширине канваса
+  const barW = BASE_W - 40;
+  const x = frameX + 20;
 
   const y = H - pad - barH;
   ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
@@ -1072,11 +1074,11 @@ function step(nowTS){
   let offsetXBase = Math.round((W - BASE_W) / 2);
   let offsetX = offsetXBase;
 
-  // World and HUD share the same horizontal center based on canvas width
-  drawButton(); // centered in W, independent of offsetX
+  // Мир и HUD используют один и тот же «экран игры» по горизонтали
+  drawButton(offsetXBase);
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
-  drawTimer();
+  drawTimer(offsetXBase);
   if(gameState==='win'){
     if(currentLevel < LAST_LEVEL){
       drawOverlay({text:'Протокол остановлен (Уровень '+currentLevel+')', color:'#2ecc71'}, [
