@@ -2,7 +2,7 @@
 <html lang="ru">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hoppy — Levels 1, 2 & 3 (fixed button centering)</title>
+<title>Hoppy — Fixed Progress Bar</title>
 <style>
   html, body { height: 100%; margin: 0; background: #0d0f12; }
   .wrap { position: fixed; inset: 0; display: grid; place-items: center; }
@@ -62,7 +62,6 @@ let cameraY = 0, cameraMaxY = 0;
   const JUMP_SCALE_MAX = 1.18;    // 118% от базового (сильный свайп)
 
   // Hold movement (binary speed)
-  const HOLD_DELAY_MS = 110;      // после ~0.11s удержания без явного свайпа включаем бег
   const RECENTER_DIST = 120;      // px: если палец ушёл далеко от origin — «перевешиваем» центр
 
   let activeId = null;
@@ -234,19 +233,15 @@ function resizeCanvas(){
   let cssW, cssH;
 
   if (IS_TOUCH && vh >= vw) {
-    // Мобильные устройства в портрете: стараемся занять максимум высоты
     const deviceAspect = vw / vh;
     if (deviceAspect >= 0.52) {
-      // Экраны, близкие к 9:16 — подгоняем по высоте, допускаем небольшой выход по ширине
       cssH = Math.min(vh, 900);
       cssW = Math.round(cssH * aspect);
     } else {
-      // Очень вытянутые телефоны — как раньше, подгоняем по ширине
       cssW = vw - 24;
       cssH = Math.round(cssW / aspect);
     }
   } else {
-    // Десктоп и ландшафт — прежнее поведение
     cssH = Math.min(vh - 24, 900);
     cssW = Math.round(cssH * aspect);
     if (cssW > vw - 24) {
@@ -616,18 +611,12 @@ function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  let barW, x;
-
-  if (IS_TOUCH) {
-    // Мобилка: прогрессбар совпадает по ширине с игровым окном
-    barW = BASE_W - 40;
-    const offsetXBase = Math.round((W - BASE_W) / 2);
-    x = offsetXBase + 20;
-  } else {
-    // Десктоп: как и раньше
-    barW = W - 40;
-    x = 20;
-  }
+  // --- BUGFIX START ---
+  const screenW = IS_TOUCH ? window.innerWidth : W; 
+  const safeW = Math.min(W, screenW);
+  const barW = safeW - 40; 
+  const x = (W - barW) / 2;
+  // --- BUGFIX END ---
 
   const y = H - pad - barH;
   ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
@@ -1109,7 +1098,7 @@ addEventListener('keydown',e=>{ if(gameState!=='play')return;
 addEventListener('keyup',e=>{
   if(e.key==='ArrowLeft'||e.key==='a') keys.left=false;
   if(e.key==='ArrowRight'||e.key==='d') keys.right=false;
-  if(e.key==='ArrowUp'||e.key==='w'||e.code==='Space'){ keys.up=false; player.jumpHeld=false; if(player.vy<0) player.vy*=0.55; e.preventDefault(); }
+  if(e.key==='ArrowUp'||e.key==='w'||e.code==='Space'){ keys.up=false; player.jumpHeld=false; if(player.vy<0) player.vy *= 0.55; e.preventDefault(); }
 });
 addEventListener('keydown',(e)=>{
   if(e.key==='r'||e.key==='R'){ setLevel(currentLevel); }
