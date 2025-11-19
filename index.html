@@ -2,7 +2,7 @@
 <html lang="ru">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hoppy — Centered Progress Bar</title>
+<title>Hoppy — Levels 1, 2 & 3 (fixed button centering)</title>
 <style>
   html, body { height: 100%; margin: 0; background: #0d0f12; }
   .wrap { position: fixed; inset: 0; display: grid; place-items: center; }
@@ -616,10 +616,11 @@ function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  // FIX: Use 85% of screen width, centered.
-  // This ignores margins or offsets and always centers relative to the Canvas (W)
-  const barW = Math.round(W * 0.85);
-  const x = Math.round((W - barW) / 2);
+  // Прогрессбар всегда привязан к видимой ширине канваса,
+  // без отдельной логики для мобилки/десктопа
+  const horizontalPad = 20;
+  const barW = Math.max(0, W - horizontalPad * 2);
+  const x = horizontalPad;
 
   const y = H - pad - barH;
   ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
