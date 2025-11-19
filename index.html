@@ -613,60 +613,21 @@ function drawButton(){
 }
 
 function drawTimer(){
-  const p = timerProgress();
-  const pad = 8, barH = 24, radius = 12;
-
-  // Единый центр: прогрессбар привязан к игровому окну BASE_W
-  const offsetXBase = Math.round((W - BASE_W) / 2);
-  const barW = BASE_W - 40;
-  const x = offsetXBase + 20;
-  const y = H - pad - barH;
-
-  ctx.save();
-  roundRectPath(x, y, barW, barH, radius);
-  ctx.fillStyle = '#e6e8eb';
-  ctx.globalAlpha = 0.85;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-  ctx.stroke();
-  ctx.restore();
-
+  const p=timerProgress();
+  const pad = 8, barH = 24, barW = W - 40, radius = 12, x = 20, y = H - pad - barH;
+  ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke(); ctx.restore();
   const fillW = Math.max(0, Math.floor(barW * p));
   if (fillW > 0){
-    let col = '#2ecc71';
-    if (p >= 0.7 && p < 0.9) col = '#f1c40f';
-    if (p >= 0.9) col = '#c0392b';
-    if (p >= 0.9){
-      const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
-      ctx.globalAlpha = 0.75 + 0.25 * blink;
-    }
+    let col = '#2ecc71'; if (p >= 0.7 && p < 0.9) col = '#f1c40f'; if (p >= 0.9) col = '#c0392b';
+    if (p >= 0.9){ const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5); ctx.globalAlpha = 0.75 + 0.25 * blink; }
     const rr = Math.min(radius, fillW/2, barH/2);
-    ctx.save();
-    roundRectPath(x, y, fillW, barH, rr);
-    ctx.fillStyle = col;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.restore();
-
-    ctx.save();
-    roundRectPath(x, y, fillW, barH, rr);
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(0,0,0,0.20)';
-    ctx.stroke();
-    ctx.restore();
+    ctx.save(); roundRectPath(x, y, fillW, barH, rr); ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
+    ctx.save(); roundRectPath(x, y, fillW, barH, rr); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.20)'; ctx.stroke(); ctx.restore();
   }
-
   drawOutlinedText(ctx, 'Очистка системы: ' + Math.floor(p*100) + '%', x + barW/2, y + barH/2, {
-    font: 'bold 14px system-ui',
-    baseline: 'middle',
-    align: 'center',
-    fill: '#fff',
-    stroke: 'rgba(0,0,0,0.95)',
-    width: 3
+    font: 'bold 14px system-ui', baseline: 'middle', align: 'center', fill: '#fff', stroke: 'rgba(0,0,0,0.95)', width: 3
   });
-
   if (p >= 0.9) {
     const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
     const redAlpha = 0.10 + 0.20 * blink;
