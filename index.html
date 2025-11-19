@@ -342,8 +342,12 @@ const SPRITES = { green: [], yellow: [] };
 function recomputeSizesWhenReady(){
   const all = [...SPRITES.green, ...SPRITES.yellow];
   const ready = all.every(i => i && i._ok);
-  if(ready){ for(const p of platforms){ assignSizeFromSprite(p); } }
-  else { setTimeout(recomputeSizesWhenReady, 30); }
+  if(ready){
+    for (const p of platforms){ assignSizeFromSprite(p); }
+    centerPlatformsHorizontally();
+  } else {
+    setTimeout(recomputeSizesWhenReady, 30);
+  }
 }
 
 // ------- Finish button (PNG) -------
@@ -474,6 +478,26 @@ function buildLevel3(){
 function shiftPlatformsBy(dy){
   if(!platforms || !platforms.length) return;
   for(const p of platforms){ p.y = Math.round(p.y + dy); }
+}
+
+function centerPlatformsHorizontally(){
+  if(!platforms || !platforms.length) return;
+  let minX = Infinity, maxX = -Infinity;
+  for (const p of platforms){
+    const w = p.w || 0;
+    if (p.x < minX) minX = p.x;
+    if (p.x + w > maxX) maxX = p.x + w;
+  }
+  if(!isFinite(minX) || !isFinite(maxX) || maxX <= minX) return;
+  const blockCenter = (minX + maxX) / 2;
+  const desired = BASE_W / 2;
+  const dx = desired - blockCenter;
+  if (Math.abs(dx) < 0.5) return;
+  for (const p of platforms){
+    p.x += dx;
+  }
+  // Держим персонажа на тех же платформах, если он уже заспавнен
+  player.x += dx;
 }
 
 // Switch level and reset state for it
