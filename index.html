@@ -2,7 +2,7 @@
 <html lang="ru">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hoppy — Fixed Progress Bar</title>
+<title>Hoppy — Fixed Progress Bar V2</title>
 <style>
   html, body { height: 100%; margin: 0; background: #0d0f12; }
   .wrap { position: fixed; inset: 0; display: grid; place-items: center; }
@@ -611,13 +611,14 @@ function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  // --- BUGFIX START ---
-  const screenW = IS_TOUCH ? window.innerWidth : W; 
-  const safeW = Math.min(W, screenW);
-  const barW = safeW - 40; 
-  const x = (W - barW) / 2;
-  // --- BUGFIX END ---
-
+  // --- BUGFIX V2: CENTER BY CANVAS GEOMETRY ---
+  // Используем ту же логику центрирования, что и для красной кнопки "Отменить" (которая на скриншоте стоит идеально).
+  // Ограничиваем ширину бара (макс 360px), чтобы на широких экранах он не был бесконечным.
+  // Гарантируем центрирование через (W - barW) / 2.
+  
+  const barW = Math.min(W - 40, 360);
+  const x = Math.round((W - barW) / 2);
+  
   const y = H - pad - barH;
   ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
   ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke(); ctx.restore();
