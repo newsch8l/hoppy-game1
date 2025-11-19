@@ -2,7 +2,7 @@
 <html lang="ru">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hoppy — Final Centered UI</title>
+<title>Hoppy — Levels 1, 2 & 3 (fixed button centering)</title>
 <style>
   html, body { height: 100%; margin: 0; background: #0d0f12; }
   .wrap { position: fixed; inset: 0; display: grid; place-items: center; }
@@ -20,14 +20,15 @@ const c = document.getElementById('cv');
 
 // --- Mobile detection & tuning ---
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-const MOBILE_SPEED_FACTOR = 0.85;
-const AIR_CONTROL_FACTOR   = 0.5;
-const ACCEL_GROUND_PER_S   = 8.0;
-const ACCEL_AIR_PER_S      = 4.0;
-const HOLD_DELAY_MS = 130;
-const TAP_MAX_MS    = 140;
-const NUDGE_DURATION = 0.16;
-const NUDGE_SPEED_SCALE = 0.6;
+const MOBILE_SPEED_FACTOR = 0.85;   // ≈85% от десктопной скорости для более отзывчивого управления
+const AIR_CONTROL_FACTOR   = 0.5;    // ослабление управления в воздухе
+const ACCEL_GROUND_PER_S   = 8.0;    // сек^-1, плавный разгон на земле
+const ACCEL_AIR_PER_S      = 4.0;    // сек^-1, мягче в воздухе
+// Tap vs Hold
+const HOLD_DELAY_MS = 130;        // после ~0.13с удержания включаем постоянное движение
+const TAP_MAX_MS    = 140;        // короче — считаем быстрым тапом
+const NUDGE_DURATION = 0.16;      // секунды «подталкивания» при коротком тапе
+const NUDGE_SPEED_SCALE = 0.6;    // ~60% от базовой скорости
 let overrideMove = {active:false, side:0, until:0};
 
 
@@ -40,22 +41,29 @@ const player = { x: 0, y: 20, w: BASE_PLAYER_W, h: BASE_PLAYER_H, vx:0, vy: 20, 
 let timeSec=0,lastGroundTime=-1,lastJumpPress=-1;
 const keys={left:false,right:false,up:false};
 
+// --- Camera (используется только на уровне 3) ---
 let cameraY = 0, cameraMaxY = 0;
 
-// ----- Mobile touch controls -----
+// ----- Mobile touch controls (Invisible Mini-Stick) -----
 (function(){
-  const DEADZONE = 16;
-  const DEADZONE_DEACTIVATE = DEADZONE * 0.55;
-  const PATH_MIN = 40;
-  const UP_MIN = 32;
-  const VERT_DOM_RATIO = 1.05;
-  const DIAG_X_MIN = 28;
-  const DIAG_RATIO = 0.65;
-  const JUMP_SWipe_MIN = 40;
-  const JUMP_SWipe_MAX = 160;
-  const JUMP_SCALE_MIN = 1.0;
-  const JUMP_SCALE_MAX = 1.18;
-  const RECENTER_DIST = 120;
+  // Geometry & thresholds
+  const DEADZONE = 16;            // px: вокруг origin движения нет
+  const DEADZONE_DEACTIVATE = DEADZONE * 0.55; // гистерезис: останавливаемся ближе к центру, чем начинаем движение
+  const PATH_MIN = 40;            // px: общий минимум пути для прыжка
+  const UP_MIN = 32;              // px: минимальная вертикаль для прыжка
+  const VERT_DOM_RATIO = 1.05;    // вертикаль должна быть сильнее горизонтали
+  const DIAG_X_MIN = 28;          // минимальная горизонталь для диагонального прыжка
+  const DIAG_RATIO = 0.65;        // absX >= 65% от absY -> диагональ осознанная
+
+  // Jump strength (analog only for vertical)
+  const JUMP_SWipe_MIN = 40;      // px: начало усиления
+  const JUMP_SWipe_MAX = 160;     // px: предел для усиления
+  const JUMP_SCALE_MIN = 1.0;     // 100% от базового (слабый свайп)
+  const JUMP_SCALE_MAX = 1.18;    // 118% от базового (сильный свайп)
+
+  // Hold movement (binary speed)
+  const HOLD_DELAY_MS = 110;      // после ~0.11s удержания без явного свайпа включаем бег
+  const RECENTER_DIST = 120;      // px: если палец ушёл далеко от origin — «перевешиваем» центр
 
   let activeId = null;
   let originX = 0, originY = 0;
@@ -69,6 +77,9 @@ let cameraY = 0, cameraMaxY = 0;
     const r = c.getBoundingClientRect();
     return { x: (t.clientX - r.left), y: (t.clientY - r.top), w: r.width, h: r.height };
   }
+
+  function sideOf(px, w){ return (px < w*0.5) ? -1 : +1; }
+
   function engageMoveBy(dx, w){
     const side = (dx < 0) ? -1 : +1;
     if(side < 0){ keys.left = true; keys.right = false; player.dir = -1; }
@@ -78,18 +89,26 @@ let cameraY = 0, cameraMaxY = 0;
   function stopMove(){
     keys.left = false; keys.right = false; moveActive = false;
   }
+
   function jumpWithStrength(absSwipeY, dx, w){
+    // Compute scale from vertical swipe length
     let t = (absSwipeY - JUMP_SWipe_MIN) / Math.max(1, (JUMP_SWipe_MAX - JUMP_SWipe_MIN));
     t = Math.max(0, Math.min(1, t));
     const scale = JUMP_SCALE_MIN + (JUMP_SCALE_MAX - JUMP_SCALE_MIN) * t;
+    // Apply jump
     lastJumpPress = timeSec; player.jumpHeld = true; keys.up = true;
+    // Set vy directly with scaling at next physics step (buffer uses lastJumpPress)
+    // Horizontal: if diagonal intent, engage move
     const absX = Math.abs(dx);
     if(absX >= DIAG_X_MIN && (absX / Math.max(1, absSwipeY)) >= DIAG_RATIO){
       engageMoveBy(dx, w);
     }
     didJump = true;
+    // Store temporary jump scale
     player._pendingJumpScale = scale;
   }
+
+  // We hook into physics to apply pending jump scale
   const _origStepHook = (window._applyPendingJumpScale = window._applyPendingJumpScale || function(){
     if(typeof player._pendingJumpScale === 'number' && player.vy < 0){
       player.vy *= player._pendingJumpScale;
@@ -111,7 +130,9 @@ let cameraY = 0, cameraMaxY = 0;
       holdTimer = setTimeout(()=>{
         if(activeId !== null && !didJump && !moveActive){
           const dx = lastX - originX;
-          if(Math.hypot(dx, 0) > DEADZONE){ engageMoveBy(dx, p.w); }
+          if(Math.hypot(dx, 0) > DEADZONE){
+            engageMoveBy(dx, p.w);
+          }
         }
       }, HOLD_DELAY_MS);
       e.preventDefault();
@@ -127,31 +148,49 @@ let cameraY = 0, cameraMaxY = 0;
     const dx = p.x - originX;
     const dy = p.y - originY;
     lastX = p.x; lastY = p.y;
+
     if(gameState === 'play'){
       const absX = Math.abs(dx), absY = Math.abs(dy);
       const pathLen = Math.hypot(dx, dy);
       const movingHoriz = moveActive || keys.left || keys.right;
-      const upThreshold = movingHoriz ? 70 : UP_MIN;
+      const upThreshold = movingHoriz ? 70 : UP_MIN;  // на бегу требуем более сильный свайп вверх
+
+      // Recenter origin if finger drifted far, но только когда не бежим и не прыгаем
       if(pathLen > RECENTER_DIST && !moveActive && !keys.left && !keys.right && !didJump){
         originX = p.x; originY = p.y;
       }
+
+      // If we already jumped: allow in-air steering on lateral deflection
       if(didJump){
-        if(absX > DEADZONE * 1.1){ engageMoveBy(dx, p.w); }
-        e.preventDefault(); return;
+        if(absX > DEADZONE * 1.1){
+          engageMoveBy(dx, p.w);
+        }
+        e.preventDefault();
+        return;
       }
+
+      // Not jumped yet
+      // 1) Check strong upward intent (pure up)
       const pureUp = (pathLen > PATH_MIN) && (-dy > upThreshold) && (absY > absX * VERT_DOM_RATIO);
+      // 2) Check diagonal upward intent
       const diagUp = (-dy > upThreshold) && (absX >= DIAG_X_MIN) && ((absX/Math.max(1,absY)) >= DIAG_RATIO);
+
       if(pureUp || diagUp){
         if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
         jumpWithStrength(absY, dx, p.w);
-        e.preventDefault(); return;
+        e.preventDefault();
+        return;
       }
+
+      // Else: horizontal move when leaving deadzone
       if(absX > DEADZONE && absX >= absY * 0.8){
         if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
         engageMoveBy(dx, p.w);
       } else if(absX <= DEADZONE_DEACTIVATE && !didJump && moveActive){
+        // If came очень близко к центру, явно останавливаемся (меньше дерганий на краях)
         stopMove();
       }
+
       e.preventDefault();
     }
   }, { passive:false });
@@ -159,22 +198,29 @@ let cameraY = 0, cameraMaxY = 0;
   function endTouch(){
     if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
     stopMove();
-    if(keys.up){ keys.up = false; player.jumpHeld = false; if(player.vy < 0) player.vy *= 0.55; }
+    if(keys.up){
+      keys.up = false; player.jumpHeld = false; if(player.vy < 0) player.vy *= 0.55;
+    }
     activeId = null;
   }
+
   c.addEventListener('touchend', (e)=>{
-    let has = false; for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
+    let has = false;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
     if(!has) return;
     if(gameState === 'play'){ e.preventDefault(); }
     endTouch();
   }, { passive:false });
+
   c.addEventListener('touchcancel', (e)=>{
-    let has = false; for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
+    let has = false;
+    for(const tt of e.changedTouches){ if(tt.identifier === activeId){ has = true; break; } }
     if(!has) return;
     if(gameState === 'play'){ e.preventDefault(); }
     endTouch();
   }, { passive:false });
 })();
+// ----- end touch controls -----
 
 ctx = c.getContext('2d', { alpha: true });
 ctx.imageSmoothingEnabled = true;
@@ -186,16 +232,21 @@ function resizeCanvas(){
   const vh = Math.max(480, window.innerHeight);
   const aspect = BASE_W / BASE_H;
   let cssW, cssH;
+
   if (IS_TOUCH && vh >= vw) {
+    // Мобильные устройства в портрете: стараемся занять максимум высоты
     const deviceAspect = vw / vh;
     if (deviceAspect >= 0.52) {
+      // Экраны, близкие к 9:16 — подгоняем по высоте, допускаем небольшой выход по ширине
       cssH = Math.min(vh, 900);
       cssW = Math.round(cssH * aspect);
     } else {
+      // Очень вытянутые телефоны — как раньше, подгоняем по ширине
       cssW = vw - 24;
       cssH = Math.round(cssW / aspect);
     }
   } else {
+    // Десктоп и ландшафт — прежнее поведение
     cssH = Math.min(vh - 24, 900);
     cssW = Math.round(cssH * aspect);
     if (cssW > vw - 24) {
@@ -203,26 +254,32 @@ function resizeCanvas(){
       cssH = Math.round(cssW / aspect);
     }
   }
+
   c.style.width = cssW + 'px';
   c.style.height = cssH + 'px';
   c.width = Math.round(cssW * DPR);
   c.height = Math.round(cssH * DPR);
+
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  W = cssW; H = cssH;
+
+  W = cssW;
+  H = cssH;
+
   recalcPlayerSize();
 }
 addEventListener('resize', resizeCanvas, { passive:true });
 
 // ------- Physics & player -------
 const G=2200, JUMP_VY=-770, SPEED_X=220, MAX_FALL=1400, MAX_RISE=1000;
-const MAX_JUMP_PX = Math.floor((JUMP_VY*JUMP_VY) / (2*G));
+const MAX_JUMP_PX = Math.floor((JUMP_VY*JUMP_VY) / (2*G)); // для уровня 3
 const MIN_OVERLAP=9, TOP_TOLERANCE=2.5;
 const FRICTION_GROUND=0.82, FRICTION_AIR=0.985;
 function applyFriction(vx,onGround,dt){ const k=Math.pow(onGround?FRICTION_GROUND:FRICTION_AIR,dt*60); return Math.abs(vx)<1?0:vx*k; }
 const COYOTE=0.08, BUFFER=0.10;
 
+// ------- Rendering helpers -------
 function recalcPlayerSize(){
   if(!hoppy || !hoppy.ready){ return; }
   const s = H / BASE_H;
@@ -252,6 +309,7 @@ function updateHitboxOffsets(){
 }
 function getHitbox(){ return { x:player.x+HITBOX_OFFSET_X, y:player.y+HITBOX_OFFSET_Y, w:player.w-HITBOX_OFFSET_X*2, h:player.h-HITBOX_OFFSET_Y }; }
 
+// ------- Assets -------
 hoppy.img.onload = ()=>{
   hoppy.ready = true;
   hoppy.naturalW = hoppy.img.naturalWidth;
@@ -263,16 +321,21 @@ hoppy.img.onload = ()=>{
 };
 hoppy.img.src = "assets/hoppy.png";
 
+// Timings for yellow platforms
 const T_PREVIEW=0.18, T_ON=1.20, T_WARN=0.30, T_OFF=0.30, REST_DELAY=0.35, CYCLE=T_PREVIEW+T_ON+T_WARN+T_OFF, CYCLE_EXT=CYCLE+REST_DELAY;
 const APPEAR_SOLID_DELAY=0.05, VANISH_COYOTE=0.10;
 
+// Sprites
 const SPRITES = { green: [], yellow: [] };
 (function loadPacks(){
   ["assets/green_1.png","assets/green_2.png","assets/green_3.png"].forEach(fn=>{
-    const i = new Image(); i.onload=()=>i._ok=true; i.onerror=()=>i._ok=false; i.src=fn; SPRITES.green.push(i);
+    const i = new Image();
+    i.onload=()=>i._ok=true; i.onerror=()=>i._ok=false; i.src=fn;
+    SPRITES.green.push(i);
   });
   ["assets/yellow_1.png","assets/yellow_2.png","assets/yellow_3.png"].forEach(fn=>{
-    const i=new Image(); i.onload=()=>i._ok=true; i.onerror=()=>i._ok=false; i.src=fn; SPRITES.yellow.push(i);
+    const i=new Image(); i.onload=()=>i._ok=true; i.onerror=()=>i._ok=false; i.src=fn;
+    SPRITES.yellow.push(i);
   });
 })();
 
@@ -283,12 +346,14 @@ function recomputeSizesWhenReady(){
   else { setTimeout(recomputeSizesWhenReady, 30); }
 }
 
+// ------- Finish button (PNG) -------
 const finish={x:60,y: 20,w:280,h:44};
 let cancelImg = new Image();
 let cancelImgOK = false;
 cancelImg.onload = ()=>{ cancelImgOK = true; };
 cancelImg.src = "assets/cancel.png";
 
+// ------- Level state -------
 const SCALE_GREEN = 0.18, SCALE_YELLOW = 0.205;
 let platforms=[];
 let currentLevel = 1;
@@ -308,9 +373,11 @@ function assignSizeFromSprite(p){
   }
 }
 
+// ----- Level builders -----
 function buildLevel1(){
   platforms = [];
   function addGreen(x,y,idx){ const g={ x:x, y:y, perm:true, spriteColor:'green', spriteIndex:(idx||0)%3 }; assignSizeFromSprite(g); platforms.push(g); return g; }
+
   const left = 50, right = 230;
   const safeBottom = H - 280;
   const gapY = 130;
@@ -325,6 +392,7 @@ function buildLevel2(){
   platforms = [];
   function addGreen(x,y,idx){ const g={ x:x, y:y, perm:true, spriteColor:'green', spriteIndex:(idx||0)%3 }; assignSizeFromSprite(g); platforms.push(g); return g; }
   function addYellow(x,y){ const yel={ x:x, y:y, perm:false, spriteColor:'yellow', spriteIndex:2, phaseOffset:0.15, state:'off', prevState:'off', tLocal:0, grace:0, solidDelay:20, waitExit:false, anim:{alpha:0, scale:1, phase:'out', t:0, dur:0} }; assignSizeFromSprite(yel); platforms.push(yel); return yel; }
+
   const left = 50, right = 230;
   const safeBottom = H - 220;
   const gapY = 120;
@@ -336,16 +404,19 @@ function buildLevel2(){
   cameraY = 0; cameraMaxY = 0;
 }
 
+// --- Level 3 ---
 const BUTTON_WORLD_Y = 12;
 function buildLevel3(){
   platforms = [];
   finish.y = BUTTON_WORLD_Y;
+
   function addGreen(x,y,idx){ const g={x:x,y:y,perm:true,spriteColor:'green',spriteIndex:(idx||0)%3,anim:{phase:'idle',t:0,dur:0,alpha:1,scale:1}};
     assignSizeFromSprite(g); platforms.push(g); return g;
   }
   function addYellow(x,y,idx,phase){ const yel={x:x,y:y,perm:false,spriteColor:'yellow',spriteIndex:(idx||0)%3,state:'on',t:0,phase:(phase||0),phaseOffset:(phase||0),speed:1 + (((idx||0)%3)-1)*0.06 + ((phase||0)-0.5)*0.04,solidDelay:0,grace:0,waitExit:false,anim:{phase:'idle',t:0,dur:0,alpha:1,scale:1}};
     assignSizeFromSprite(yel); platforms.push(yel); return yel;
   }
+
   const topNoPlatsY = finish.y + MAX_JUMP_PX;
   const left = 40, right = 240;
   const STEPS = 8;
@@ -355,6 +426,7 @@ function buildLevel3(){
   function varyNormal(i){ const d = Math.round((prand(i)-0.5)*10); return Math.max(80, Math.min(NORMAL_BASE + d, Math.floor(MAX_JUMP_PX)-2)); }
   function varyBridge(i){ const d = Math.round((prand(100+i)-0.5)*24); const raw = BRIDGE_BASE + d; const hi = 2*Math.floor(MAX_JUMP_PX) - 6; const lo = Math.floor(MAX_JUMP_PX) + 6; return Math.max(lo, Math.min(raw, hi)); }
   const requireMid = new Set([0,2,3,5]);
+
   const G = new Array(STEPS);
   let y = topNoPlatsY;
   G[0] = addGreen(left, y, 0);
@@ -364,6 +436,7 @@ function buildLevel3(){
     const x = (i%2===0) ? left : right;
     G[i] = addGreen(x, y, i%3);
   }
+
   function jitter(i){ const s=Math.sin((i+0.37)*12.9898)*43758.5453; return (s - Math.floor(s)) * 2 - 1; }
   function rand01(i){ const s=Math.sin((i+0.91)*78.233)*43758.5453; return s - Math.floor(s); }
   for (let i=0;i<STEPS;i++){
@@ -379,6 +452,7 @@ function buildLevel3(){
     const maxX = BASE_W - (p.w||180) - 8;
     p.x = Math.max(minX, Math.min(maxX, p.x + dx));
   }
+
   const lerp=(a,b,t)=>Math.round(a*(1-t)+b*t);
   const midY=(a,b)=>Math.round((a+b)/2)+6;
   function midAuto(a,b,idx,phaseSeed){
@@ -396,10 +470,13 @@ function buildLevel3(){
   cameraY = Math.max(0, Math.min(cameraMaxY, G[STEPS-1].y - (H - 120)));
 }
 
+// Helpers reused by multiple levels
 function shiftPlatformsBy(dy){
   if(!platforms || !platforms.length) return;
   for(const p of platforms){ p.y = Math.round(p.y + dy); }
 }
+
+// Switch level and reset state for it
 function setLevel(n){
   currentLevel = n;
   timeSec = 0; timerElapsed = 0; gameState='play';
@@ -411,6 +488,8 @@ function setLevel(n){
   spawnOnBottomPlatform();
 }
 
+// ------- Animations & platform state for yellow -------
+const POP_IN_START = 0.86, POP_IN_OVERSHOOT = 1.04, ALPHA_SOLID_THRESHOLD = 0.95;
 function easeOutBack(t){ const c1=1.70158, c3=c1+1; return 1 + c3*Math.pow(t-1,3) + c1*Math.pow(t-1,2); }
 function easeInQuad(t){ return t*t; }
 function setAnim(p,phase,dur){ if(!p.anim) p.anim={}; p.anim.phase=phase; p.anim.t=0; p.anim.dur=dur; if(phase==='out'){ p.anim.alpha = 0; } }
@@ -470,23 +549,28 @@ function bridgeIsSolidForLanding(p){
   return false;
 }
 
-let TIMER_TOTAL = 12.0; 
+// ------- UI / Timer -------
+let TIMER_TOTAL = 12.0; // default; overridden per level
 function getTimerTotal(level){
   if(level===1) return 12.0;
   if(level===2) return 10.0;
-  return 8.5; 
+  return 8.5; // level 3 and above
 } let timerElapsed=0;
 function timerProgress(){ return Math.max(0, Math.min(1, timerElapsed/TIMER_TOTAL)); }
 
 let uiButtons=[];
+
+// Overlay background sprites
 const OVERLAY = {
   win:  { img: new Image(), ready: false, w: 0, h: 0 },
   lose: { img: new Image(), ready: false, w: 0, h: 0 }
 };
 OVERLAY.win.img.onload  = ()=>{ OVERLAY.win.ready = true;  OVERLAY.win.w = OVERLAY.win.img.naturalWidth; OVERLAY.win.h = OVERLAY.win.img.naturalHeight; };
 OVERLAY.lose.img.onload = ()=>{ OVERLAY.lose.ready = true; OVERLAY.lose.w = OVERLAY.lose.img.naturalWidth; OVERLAY.lose.h = OVERLAY.lose.img.naturalHeight; };
-OVERLAY.win.img.src  = "assets/continue.png"; 
+OVERLAY.win.img.src  = "assets/continue.png";  // WIN
 OVERLAY.lose.img.src = "assets/gameover.png";
+
+// Animation clock for overlay (pulse)
 let overlayClock = 0;
 
 function roundRectPath(x,y,w,h,r){
@@ -512,6 +596,7 @@ function drawOutlinedText(ctx,text,x,y,opt){
   ctx.fillStyle=fill; ctx.fillText(text,x,y); ctx.restore();
 }
 
+// --- Fixed centered button ---
 function drawButton(){
   if (!cancelImgOK) return;
   const targetW = Math.round(W * 0.6825);
@@ -527,37 +612,61 @@ function drawButton(){
   ctx.restore();
 }
 
-// --- PROFESSIONAL CENTER ANCHOR LOGIC ---
 function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
-  
-  // STANDARD: Anchor to Center Bottom
-  // 1. Define the width relative to the canvas W, but with a max limit
-  const maxBarW = 360; 
-  const margin = 20;
-  // The bar wants to be W-40, but never wider than 360px
-  const barW = Math.min(W - (margin * 2), maxBarW);
-  
-  // 2. Calculate X based on center anchor
-  // X = (CanvasWidth / 2) - (ElementWidth / 2)
-  // Since we are using top-left coordinates:
-  const x = Math.round((W - barW) / 2);
 
+  // Единый центр: прогрессбар привязан к игровому окну BASE_W
+  const offsetXBase = Math.round((W - BASE_W) / 2);
+  const barW = BASE_W - 40;
+  const x = offsetXBase + 20;
   const y = H - pad - barH;
-  ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
-  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke(); ctx.restore();
+
+  ctx.save();
+  roundRectPath(x, y, barW, barH, radius);
+  ctx.fillStyle = '#e6e8eb';
+  ctx.globalAlpha = 0.85;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.stroke();
+  ctx.restore();
+
   const fillW = Math.max(0, Math.floor(barW * p));
   if (fillW > 0){
-    let col = '#2ecc71'; if (p >= 0.7 && p < 0.9) col = '#f1c40f'; if (p >= 0.9) col = '#c0392b';
-    if (p >= 0.9){ const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5); ctx.globalAlpha = 0.75 + 0.25 * blink; }
+    let col = '#2ecc71';
+    if (p >= 0.7 && p < 0.9) col = '#f1c40f';
+    if (p >= 0.9) col = '#c0392b';
+    if (p >= 0.9){
+      const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
+      ctx.globalAlpha = 0.75 + 0.25 * blink;
+    }
     const rr = Math.min(radius, fillW/2, barH/2);
-    ctx.save(); roundRectPath(x, y, fillW, barH, rr); ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
-    ctx.save(); roundRectPath(x, y, fillW, barH, rr); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.20)'; ctx.stroke(); ctx.restore();
+    ctx.save();
+    roundRectPath(x, y, fillW, barH, rr);
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    ctx.save();
+    roundRectPath(x, y, fillW, barH, rr);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(0,0,0,0.20)';
+    ctx.stroke();
+    ctx.restore();
   }
+
   drawOutlinedText(ctx, 'Очистка системы: ' + Math.floor(p*100) + '%', x + barW/2, y + barH/2, {
-    font: 'bold 14px system-ui', baseline: 'middle', align: 'center', fill: '#fff', stroke: 'rgba(0,0,0,0.95)', width: 3
+    font: 'bold 14px system-ui',
+    baseline: 'middle',
+    align: 'center',
+    fill: '#fff',
+    stroke: 'rgba(0,0,0,0.95)',
+    width: 3
   });
+
   if (p >= 0.9) {
     const blink = (Math.sin(timeSec * 10) * 0.5 + 0.5);
     const redAlpha = 0.10 + 0.20 * blink;
@@ -568,6 +677,7 @@ function drawTimer(){
   }
 }
 
+// ------- Drawing -------
 function drawPlatformSprite(p, offsetX){
   const pack = SPRITES[p.spriteColor];
   const img = (pack && pack.length>0) ? pack[p.spriteIndex % pack.length] : null;
@@ -607,6 +717,7 @@ function drawHoppy(offsetX){
     const baseX = Math.round(player.x);
     const drawX = flipLeft ? baseX + player.w : baseX;
     const drawY = Math.round(player.y + (typeof RENDER_FEET_OVERLAP!=='undefined'?RENDER_FEET_OVERLAP:0));
+
     const vy = (typeof player.vy==='number') ? player.vy : 0;
     let targetY = 1 + Math.max(-0.12, Math.min(0.12, -vy / 850));
     targetY = Math.max(0.93, Math.min(1.12, targetY));
@@ -614,100 +725,195 @@ function drawHoppy(offsetX){
     if (!player._scaleY) { player._scaleY = 1; player._scaleX = 1; }
     player._scaleY += (targetY - player._scaleY) * 0.12;
     player._scaleX += (targetX - player._scaleX) * 0.12;
+
     const cx = drawX + (flipLeft ? -player.w/2 : player.w/2);
     const cy = drawY + player.h/2;
+
     ctx.save();
     ctx.translate(cx, cy);
     if (flipLeft) ctx.scale(-1, 1);
     ctx.scale(player._scaleX, player._scaleY);
     ctx.translate(-cx, -cy);
+
     if (flipLeft) ctx.drawImage(hoppy.img, drawX - player.w, drawY, player.w, player.h);
     else          ctx.drawImage(hoppy.img, drawX,             drawY, player.w, player.h);
+
     ctx.restore();
+
   } else {
     ctx.fillStyle='#2ecc71'; ctx.fillRect(Math.round(player.x),Math.round(player.y),Math.round(player.w),Math.round(player.h));
   }
   ctx.restore();
 }
 
+// ------- Overlay & input -------
 function drawOverlay(title, actions){
+  // Dim background
   ctx.save();
   ctx.globalAlpha = 0.55;
   ctx.fillStyle = '#000';
   ctx.fillRect(0,0,W,H);
   ctx.restore();
+
+  // Background image
   const kind = (gameState === 'win') ? 'win' : 'lose';
   const bg = OVERLAY[kind];
   const img = bg ? bg.img : null;
   const iW = (bg && bg.w) ? bg.w : 812;
   const iH = (bg && bg.h) ? bg.h : 535;
   const aspect = iW / iH;
+
+  // Compact size
   const maxW = Math.min(W * 0.63, 294);
   const maxH = Math.min(H * 0.49, 196);
   let boxW = maxW, boxH = Math.round(maxW / aspect);
   if (boxH > maxH){ boxH = maxH; boxW = Math.round(maxH * aspect); }
   const bx = Math.round((W - boxW)/2);
   const by = Math.round((H - boxH)/2);
+
+  // Ensure overlay is fully opaque
   ctx.globalAlpha = 1.0;
+
   if (img) ctx.drawImage(img, bx, by, boxW, boxH);
   else {
     const r = 18;
-    ctx.save(); ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.moveTo(bx+r,by); ctx.arcTo(bx+boxW,by,bx+boxW,by+boxH,r); ctx.arcTo(bx+boxW,by+boxH,bx,by+boxH,r); ctx.arcTo(bx,by+boxH,bx,by,r); ctx.arcTo(bx,by,bx+boxW,by,r); ctx.closePath(); ctx.fill(); ctx.restore();
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(bx+r,by);
+    ctx.arcTo(bx+boxW,by,bx+boxW,by+boxH,r);
+    ctx.arcTo(bx+boxW,by+boxH,bx,by+boxH,r);
+    ctx.arcTo(bx,by+boxH,bx,by,r);
+    ctx.arcTo(bx,by,bx+boxW,by,r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
+
+  // Inner layout
   const padX = Math.round(boxW * 0.09);
   const padY = Math.round(boxH * 0.18);
   const innerY = by + padY;
   const innerW = boxW - padX*2;
   const innerH = boxH - padY - Math.round(boxH*0.10);
+
   if (gameState === 'win') {
-    ctx.save(); ctx.fillStyle = '#2E2E2E'; ctx.font = '700 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('УРОВЕНЬ ' + currentLevel, bx + boxW/2, innerY + Math.round(innerH * 0.18)); ctx.restore();
-    ctx.save(); ctx.fillStyle = '#2E2E2E'; ctx.font = '600 16px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Протокол остановлен', bx + boxW/2, innerY + Math.round(innerH * 0.33)); ctx.restore();
+    // Header
+    ctx.save();
+    ctx.fillStyle = '#2E2E2E';
+    ctx.font = '700 20px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('УРОВЕНЬ ' + currentLevel, bx + boxW/2, innerY + Math.round(innerH * 0.18));
+    ctx.restore();
+
+    // Subtitle
+    ctx.save();
+    ctx.fillStyle = '#2E2E2E';
+    ctx.font = '600 16px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Протокол остановлен', bx + boxW/2, innerY + Math.round(innerH * 0.33));
+    ctx.restore();
   } else {
-    ctx.save(); ctx.fillStyle = '#2E2E2E'; ctx.font = '700 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(title.text, bx + boxW/2, innerY + Math.round(innerH * 0.24)); ctx.restore();
+    // Lose
+    ctx.save();
+    ctx.fillStyle = '#2E2E2E';
+    ctx.font = '700 20px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(title.text, bx + boxW/2, innerY + Math.round(innerH * 0.24));
+    ctx.restore();
   }
+
+  // Buttons
   uiButtons.length = 0;
   const btnW = Math.max(118, Math.min(136, Math.round(innerW*0.42)));
   const btnH = 40;
   const gap = Math.max(12, Math.round(innerW*0.08));
   const yb = innerY + Math.round(innerH*0.60);
   let x0 = bx + (boxW - (actions.length*btnW + (actions.length-1)*gap))/2;
+
   const w = 2*Math.PI*1.7;
   const clk = (typeof overlayClock==='number') ? overlayClock : 0;
   const pulse = 1.0 + 0.016 * Math.pow(Math.max(0, Math.sin(clk * w)), 2);
+
   for (let idx = 0; idx < actions.length; idx++) {
     const a = actions[idx];
     const isPrimary = (a.label === 'Дальше');
-    const x = x0; const y = yb;
+    const x = x0;
+    const y = yb;
+
+    // Special red style for lose
     const isLose = (gameState === 'lose');
+
     if ( (gameState === 'win' && isPrimary) || (gameState === 'lose') ) {
-      ctx.save(); ctx.translate(x + btnW/2, y + btnH/2); ctx.scale(pulse, pulse); ctx.translate(-(x + btnW/2), -(y + btnH/2));
+      ctx.save();
+      ctx.translate(x + btnW/2, y + btnH/2);
+      ctx.scale(pulse, pulse);
+      ctx.translate(-(x + btnW/2), -(y + btnH/2));
     }
     const r = 12;
-    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+btnW, y, x+btnW, y+btnH, r); ctx.arcTo(x+btnW, y+btnH, x, y+btnH, r); ctx.arcTo(x, y+btnH, x, y, r); ctx.arcTo(x, y, x+btnW, y, r); ctx.closePath();
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+btnW, y, x+btnW, y+btnH, r);
+    ctx.arcTo(x+btnW, y+btnH, x, y+btnH, r);
+    ctx.arcTo(x, y+btnH, x, y, r);
+    ctx.arcTo(x, y, x+btnW, y, r);
+    ctx.closePath();
+
     if (isLose) {
-      const grad = ctx.createLinearGradient(0,y,0,y+btnH); grad.addColorStop(0, '#E74C3C'); grad.addColorStop(1, '#FF6B4A');
-      ctx.fillStyle = grad; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#B13A2E'; ctx.stroke(); ctx.restore();
+      // Red button style for lose
+      const grad = ctx.createLinearGradient(0,y,0,y+btnH);
+      grad.addColorStop(0, '#E74C3C');
+      grad.addColorStop(1, '#FF6B4A');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#B13A2E';
+      ctx.stroke();
+      ctx.restore();
     } else if (isPrimary) {
-      const grad = ctx.createLinearGradient(0,y,0,y+btnH); grad.addColorStop(0, '#4F8C45'); grad.addColorStop(1, '#67B35B');
-      ctx.fillStyle = grad; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#3E7336'; ctx.stroke(); ctx.restore();
+      const grad = ctx.createLinearGradient(0,y,0,y+btnH);
+      grad.addColorStop(0, '#4F8C45');
+      grad.addColorStop(1, '#67B35B');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#3E7336';
+      ctx.stroke();
+      ctx.restore();
     } else {
-      ctx.fillStyle = '#E9ECEB'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#4F8C45'; ctx.stroke();
+      ctx.fillStyle = '#E9ECEB';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#4F8C45';
+      ctx.stroke();
     }
+
     ctx.save();
     if ( (gameState === 'win' && isPrimary) || (gameState === 'lose') ) {
-      ctx.translate(x + btnW/2, y + btnH/2); ctx.scale(pulse, pulse); ctx.translate(-(x + btnW/2), -(y + btnH/2));
+      ctx.translate(x + btnW/2, y + btnH/2);
+      ctx.scale(pulse, pulse);
+      ctx.translate(-(x + btnW/2), -(y + btnH/2));
     }
-    ctx.font = '600 15px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    if (isLose) { ctx.fillStyle = '#FFFFFF'; } else { ctx.fillStyle = isPrimary ? '#ffffff' : '#4F8C45'; }
-    ctx.fillText(a.label, x + btnW/2, y + btnH/2); ctx.restore();
+    ctx.font = '600 15px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (isLose) {
+      ctx.fillStyle = '#FFFFFF';
+    } else {
+      ctx.fillStyle = isPrimary ? '#ffffff' : '#4F8C45';
+    }
+    ctx.fillText(a.label, x + btnW/2, y + btnH/2);
+    ctx.restore();
+
     uiButtons.push({x:x, y:y, w:btnW, h:btnH, action:a.action});
     x0 += btnW + gap;
   }
 }
+
+// ------- Overlay input (click + touch) -------
 function triggerOverlayActionAt(x, y){
   for(const b of uiButtons){
     if(x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
@@ -718,6 +924,7 @@ function triggerOverlayActionAt(x, y){
     }
   }
 }
+
 addEventListener('click', (e)=>{
   if(!(gameState === 'win' || gameState === 'lose')) return;
   const rect = c.getBoundingClientRect();
@@ -725,6 +932,7 @@ addEventListener('click', (e)=>{
   const y = (e.clientY - rect.top);
   triggerOverlayActionAt(x, y);
 });
+
 let overlayPressedIndex = -1;
 addEventListener('touchstart', (e)=>{
   if(!(gameState === 'win' || gameState === 'lose')) return;
@@ -742,6 +950,7 @@ addEventListener('touchstart', (e)=>{
   }
   if(overlayPressedIndex !== -1){ e.preventDefault(); }
 }, { passive:false });
+
 addEventListener('touchend', (e)=>{
   if(!(gameState === 'win' || gameState === 'lose')) return;
   if(overlayPressedIndex === -1) return;
@@ -756,8 +965,11 @@ addEventListener('touchend', (e)=>{
   overlayPressedIndex = -1;
   e.preventDefault();
 }, { passive:false });
-addEventListener('touchcancel', ()=>{ overlayPressedIndex = -1; });
 
+addEventListener('touchcancel', ()=>{ overlayPressedIndex = -1; });
+// ------- end overlay input -------
+
+// ------- Win logic -------
 function checkWinByBodyCenter(prevHB,newHB){
   const yMid=finish.y + finish.h/2;
   const left=finish.x, right=finish.x+finish.w;
@@ -768,6 +980,7 @@ function checkWinByBodyCenter(prevHB,newHB){
   return (cyPrev>yMid)&&(cyNew<=yMid);
 }
 
+// ------- Loop -------
 function spawnOnBottomPlatform(){
   let baseIndex = -1;
   for(let i=0;i<platforms.length;i++){ if(platforms[i].perm){ if(baseIndex===-1 || platforms[i].y>platforms[baseIndex].y) baseIndex=i; } }
@@ -784,30 +997,51 @@ function spawnOnBottomPlatform(){
     cameraY = 0;
   }
 }
+
 function resetTransientForYellow(){
   for(const p of platforms){ 
-    if(!p.perm){ p.state='off'; p.prevState='off'; p.tLocal=0; p.grace=0; p.solidDelay=0; p.waitExit=false; setAnim(p,'out',0); if(p.anim) p.anim.alpha=0; } 
+    if(!p.perm){ 
+      p.state='off'; p.prevState='off'; p.tLocal=0; p.grace=0; p.solidDelay=0; p.waitExit=false; 
+      setAnim(p,'out',0); if(p.anim) p.anim.alpha=0; 
+    } 
   }
 }
 
+function resetLevel(){
+  TIMER_TOTAL = getTimerTotal(currentLevel);
+  timerElapsed = 0;
+
+  timeSec=0; timerElapsed=0; gameState='play'; spawnOnBottomPlatform();
+  resetTransientForYellow();
+  uiButtons.length = 0;
+}
+
 let lastTS=performance.now();
+
 function step(nowTS){
   const dt=Math.min(0.033,(nowTS-lastTS)/1000); lastTS=nowTS;
   if(gameState==='play'){ timeSec+=dt; timerElapsed+=dt; if(timerElapsed>=TIMER_TOTAL) gameState='lose'; }
   if(gameState==='play'){
     let targetVx=0;
     const baseSpeed = SPEED_X * (IS_TOUCH ? MOBILE_SPEED_FACTOR : 1.0);
+    // Принудительный короткий «тычок» после быстрого тапа (без фиксации клавиш)
     if(IS_TOUCH && overrideMove.active){
       if(timeSec <= overrideMove.until){
         if(overrideMove.side < 0){ targetVx -= baseSpeed * NUDGE_SPEED_SCALE; player.dir = -1; }
         else { targetVx += baseSpeed * NUDGE_SPEED_SCALE; player.dir = +1; }
-      } else { overrideMove.active = false; keys.left = false; keys.right = false; }
+      } else {
+        overrideMove.active = false;
+        // Убедимся, что после «тычка» не осталось зажатых направлений
+        keys.left = false; keys.right = false;
+      }
     }
     if(keys.right)targetVx+=baseSpeed; if(keys.left)targetVx-=baseSpeed;
+    // Плавный разгон/замедление вместо мгновенных скачков
     const accelPerS = player.on ? ACCEL_GROUND_PER_S : (ACCEL_AIR_PER_S * AIR_CONTROL_FACTOR);
     const lerpK = Math.min(1, accelPerS * dt);
     const desired = targetVx;
     player.vx = player.vx + (desired - player.vx) * lerpK;
+    // Если нет цели — применяем трение
     if(Math.abs(desired) < 1){ player.vx = applyFriction(player.vx, player.on, dt); }
     const canCoyote=(timeSec-lastGroundTime)<=COYOTE;
     const buffered=(timeSec-lastJumpPress)<=BUFFER;
@@ -815,7 +1049,13 @@ function step(nowTS){
     const prevHB=getHitbox(); const prevBottom=prevHB.y+prevHB.h;
     player.vy+=G*dt; if(player.vy>MAX_FALL)player.vy=MAX_FALL; if(player.vy<-MAX_RISE)player.vy=-MAX_RISE; _applyPendingJumpScale();
     player.x+=player.vx*dt; player.y+=player.vy*dt; player.on=false;
-    if(currentLevel===3){ const camTarget = Math.max(0, Math.min(cameraMaxY, player.y - H*0.60)); cameraY += (camTarget - cameraY) * 0.12; }
+
+    // камера только на уровне 3
+    if(currentLevel===3){
+      const camTarget = Math.max(0, Math.min(cameraMaxY, player.y - H*0.60));
+      cameraY += (camTarget - cameraY) * 0.12;
+    }
+
     const hb=getHitbox();
     for(const p of platforms){ if(!p.perm) updateBridgeState(p,dt,hb); }
     const newHB=getHitbox(); const newBottom=newHB.y+newHB.h;
@@ -839,22 +1079,10 @@ function step(nowTS){
   }
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0,0,W,H);
-  let offsetXBase = Math.round((W - BASE_W) / 2);
-  let offsetX = offsetXBase;
-  if (IS_TOUCH && platforms.length) {
-    let minX = Infinity, maxX = -Infinity;
-    for (const p of platforms) {
-      const w = p.w || 0;
-      if (p.x < minX) minX = p.x;
-      if (p.x + w > maxX) maxX = p.x + w;
-    }
-    if (minX < maxX && isFinite(minX) && isFinite(maxX)) {
-      const blockCenterScreen = offsetXBase + (minX + maxX) / 2;
-      const desiredCenter = W / 2;
-      offsetX += (desiredCenter - blockCenterScreen);
-    }
-  }
-  drawButton();
+  const offsetXBase = Math.round((W - BASE_W) / 2);
+  const offsetX = offsetXBase;
+
+  drawButton(); // centered in W, independent of offsetX
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
   drawTimer();
@@ -881,6 +1109,7 @@ function step(nowTS){
 
 resizeCanvas();
 
+// Keyboard (desktop unchanged)
 addEventListener('keydown',e=>{ if(gameState!=='play')return;
   if(e.key==='ArrowLeft'||e.key==='a'){keys.left=true; player.dir=-1;}
   if(e.key==='ArrowRight'||e.key==='d'){keys.right=true; player.dir=1;}
@@ -889,7 +1118,7 @@ addEventListener('keydown',e=>{ if(gameState!=='play')return;
 addEventListener('keyup',e=>{
   if(e.key==='ArrowLeft'||e.key==='a') keys.left=false;
   if(e.key==='ArrowRight'||e.key==='d') keys.right=false;
-  if(e.key==='ArrowUp'||e.key==='w'||e.code==='Space'){ keys.up=false; player.jumpHeld=false; if(player.vy<0) player.vy *= 0.55; e.preventDefault(); }
+  if(e.key==='ArrowUp'||e.key==='w'||e.code==='Space'){ keys.up=false; player.jumpHeld=false; if(player.vy<0) player.vy*=0.55; e.preventDefault(); }
 });
 addEventListener('keydown',(e)=>{
   if(e.key==='r'||e.key==='R'){ setLevel(currentLevel); }
