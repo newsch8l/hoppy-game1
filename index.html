@@ -478,7 +478,15 @@ function setLevel(n){
   if(n === 1) buildLevel1();
   else if(n === 2) buildLevel2();
   else if(n === 3) buildLevel3();
-  if(n===1 || n===2){ shiftPlatformsBy(H * 0.05); }
+
+  // Лёгкая адаптация вертикального положения платформ:
+  // на тач-устройствах первые два уровня опускаем чуть ниже,
+  // чтобы верхние платформы не приближались к кнопке отмены.
+  if(n===1 || n===2){
+    const shiftK = IS_TOUCH ? 0.12 : 0.05;
+    shiftPlatformsBy(H * shiftK);
+  }
+
   recomputeSizesWhenReady();
   spawnOnBottomPlatform();
 }
