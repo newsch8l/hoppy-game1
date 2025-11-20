@@ -348,12 +348,8 @@ const SPRITES = { green: [], yellow: [] };
 function recomputeSizesWhenReady(){
   const all = [...SPRITES.green, ...SPRITES.yellow];
   const ready = all.every(i => i && i._ok);
-  if(ready){
-    for (const p of platforms){ assignSizeFromSprite(p); }
-    centerPlatformsHorizontally();
-  } else {
-    setTimeout(recomputeSizesWhenReady, 30);
-  }
+  if(ready){ for(const p of platforms){ assignSizeFromSprite(p); } }
+  else { setTimeout(recomputeSizesWhenReady, 30); }
 }
 
 // ------- Finish button (PNG) -------
@@ -486,26 +482,6 @@ function shiftPlatformsBy(dy){
   for(const p of platforms){ p.y = Math.round(p.y + dy); }
 }
 
-function centerPlatformsHorizontally(){
-  if(!platforms || !platforms.length) return;
-  let minX = Infinity, maxX = -Infinity;
-  for (const p of platforms){
-    const w = p.w || 0;
-    if (p.x < minX) minX = p.x;
-    if (p.x + w > maxX) maxX = p.x + w;
-  }
-  if(!isFinite(minX) || !isFinite(maxX) || maxX <= minX) return;
-  const blockCenter = (minX + maxX) / 2;
-  const desired = BASE_W / 2;
-  const dx = desired - blockCenter;
-  if (Math.abs(dx) < 0.5) return;
-  for (const p of platforms){
-    p.x += dx;
-  }
-  // Держим персонажа на тех же платформах, если он уже заспавнен
-  player.x += dx;
-}
-
 // Switch level and reset state for it
 function setLevel(n){
   currentLevel = n;
@@ -627,15 +603,14 @@ function drawOutlinedText(ctx,text,x,y,opt){
 }
 
 // --- Fixed centered button ---
-function drawButton(frameX){
+function drawButton(){
   if (!cancelImgOK) return;
-  // Кнопка центрируется относительно «экрана игры», а не всей ширины канваса
-  const targetW = Math.round(BASE_W * 0.6825);
+  const targetW = Math.round(W * 0.6825);
   const ar = cancelImg.height / cancelImg.width;
   const targetH = Math.round(targetW * ar);
   finish.w = targetW;
   finish.h = targetH;
-  finish.x = Math.round(frameX + (BASE_W - finish.w) / 2);
+  finish.x = Math.round((W - finish.w) / 2);
   ctx.save();
   if(currentLevel === 3){ ctx.translate(0, -cameraY); }
   ctx.imageSmoothingEnabled = true;
@@ -643,13 +618,22 @@ function drawButton(frameX){
   ctx.restore();
 }
 
-function drawTimer(frameX){
+function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  // Прогрессбар живёт внутри «экрана игры» (BASE_W), а не по всей ширине канваса
-  const barW = BASE_W - 40;
-  const x = frameX + 20;
+  let barW, x;
+
+  if (IS_TOUCH) {
+    // Мобилка: прогрессбар совпадает по ширине с игровым окном
+    barW = BASE_W - 40;
+    const offsetXBase = Math.round((W - BASE_W) / 2);
+    x = offsetXBase + 20;
+  } else {
+    // Десктоп: как и раньше
+    barW = W - 40;
+    x = 20;
+  }
 
   const y = H - pad - barH;
   ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
@@ -1080,11 +1064,11 @@ function step(nowTS){
   let offsetXBase = Math.round((W - BASE_W) / 2);
   let offsetX = offsetXBase;
 
-  // Мир и HUD используют один и тот же «экран игры» по горизонтали
-  drawButton(offsetXBase);
+
+  drawButton(); // centered in W, independent of offsetX
   drawPlatforms(offsetX);
   drawHoppy(offsetX);
-  drawTimer(offsetXBase);
+  drawTimer();
   if(gameState==='win'){
     if(currentLevel < LAST_LEVEL){
       drawOverlay({text:'Протокол остановлен (Уровень '+currentLevel+')', color:'#2ecc71'}, [
