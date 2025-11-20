@@ -234,22 +234,10 @@ function resizeCanvas(){
   let cssW, cssH;
 
   if (IS_TOUCH && vh >= vw) {
-    // Мобильные устройства в портрете: стараемся занять максимум высоты
-    const deviceAspect = vw / vh;
-    if (deviceAspect >= 0.52) {
-      // Экраны, близкие к 9:16 — подгоняем по высоте
-      cssH = Math.min(vh, 900);
-      cssW = Math.round(cssH * aspect);
-      // Но не даём канвасу быть шире видимой ширины экрана
-      if (cssW > vw - 24) {
-        cssW = vw - 24;
-        cssH = Math.round(cssW / aspect);
-      }
-    } else {
-      // Очень вытянутые телефоны — как раньше, подгоняем по ширине
-      cssW = vw - 24;
-      cssH = Math.round(cssW / aspect);
-    }
+    // Мобильные устройства в портрете: канвас всегда вписывается в ширину экрана,
+    // без выходов за края и с максимальным использованием доступного места
+    cssW = vw;
+    cssH = Math.round(cssW / aspect);
   } else {
     // Десктоп и ландшафт — прежнее поведение
     cssH = Math.min(vh - 24, 900);
