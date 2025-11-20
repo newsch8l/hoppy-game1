@@ -622,18 +622,9 @@ function drawTimer(){
   const p = timerProgress();
   const pad = 8, barH = 24, radius = 12;
 
-  let barW, x;
-
-  if (IS_TOUCH) {
-    // Мобилка: прогрессбар совпадает по ширине с игровым окном
-    barW = BASE_W - 40;
-    const offsetXBase = Math.round((W - BASE_W) / 2);
-    x = offsetXBase + 20;
-  } else {
-    // Десктоп: как и раньше
-    barW = W - 40;
-    x = 20;
-  }
+  // Центрируем прогрессбар по реальному окну канваса, как и кнопку
+  const barW = Math.max(120, Math.round(W * 0.75));
+  const x = Math.round((W - barW) / 2);
 
   const y = H - pad - barH;
   ctx.save(); roundRectPath(x, y, barW, barH, radius); ctx.fillStyle = '#e6e8eb'; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
