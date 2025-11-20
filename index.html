@@ -255,6 +255,12 @@ function resizeCanvas(){
     }
   }
 
+
+  if (cssW < BASE_W) {
+    cssW = BASE_W;
+    cssH = Math.round(cssW / aspect);
+  }
+
   c.style.width = cssW + 'px';
   c.style.height = cssH + 'px';
   c.width = Math.round(cssW * DPR);
